@@ -134,3 +134,49 @@ class InstallTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VerifyTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def make_zip(self, name, entries):
+        p = self.root / name
+        with zipfile.ZipFile(p, "w") as z:
+            for k, v in entries.items():
+                z.writestr(k, v)
+        return p
+
+    def test_check_zip(self):
+        ok = self.make_zip("ok.zip", {"s/SKILL.md": "---\nname: s\ndescription: d\n---\n"})
+        self.assertIsNone(install.check_zip(ok))
+        self.assertIn("單一", install.check_zip(self.make_zip("two.zip", {"a/SKILL.md": "x", "b/x": "y"})))
+        self.assertIn("SKILL.md", install.check_zip(self.make_zip("none.zip", {"a/README.md": "x"})))
+        self.assertIn("name", install.check_zip(self.make_zip("bad.zip", {"a/SKILL.md": "---\ntitle: x\n---\n"})))
+
+    def test_verify_retries_then_succeeds(self):
+        calls = []
+
+        def fake(cfg, *args):
+            calls.append(args)
+            ok = args[1] == "marketplace" or len([c for c in calls if c[1] == "install"]) >= 2
+            return mock.Mock(returncode=0 if ok else 1, stdout="", stderr="boom")
+
+        rows = [{"name": "p", "zips": [], "problems": []}]
+        with mock.patch.object(install, "_claude", fake), mock.patch.object(install.shutil, "which", return_value="/bin/claude"):
+            install.verify(self.root, rows)
+        self.assertEqual(rows[0]["checks"]["code"], "ok")
+        self.assertIn("第 2 次", rows[0]["checks"]["detail"][0])
+
+    def test_verify_reports_failure_after_retries(self):
+        fake = lambda cfg, *args: mock.Mock(returncode=0 if args[1] == "marketplace" else 1, stdout="", stderr="no such plugin")
+        rows = [{"name": "p", "zips": [], "problems": []}]
+        with mock.patch.object(install, "_claude", fake), mock.patch.object(install.shutil, "which", return_value="/bin/claude"):
+            install.verify(self.root, rows)
+        self.assertEqual(rows[0]["checks"]["code"], "fail")
+        self.assertIn("no such plugin", rows[0]["problems"][0])
+        self.assertEqual(install._status({**rows[0], "code_cmd": "x", "market_cmd": None}), "partial")

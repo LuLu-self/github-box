@@ -189,6 +189,12 @@ function installSection(cfg, stem, rec, m) {
       if (polls++ < 15) timer = setTimeout(render, 20000);
       else kids.push(el('p', 'mmsg', '等太久了，可以到收藏庫的 Actions 看看 install 有沒有出錯。'));
     } else {
+      const ck = result.checks && typeof result.checks === 'object' ? result.checks : null;
+      if (ck) {
+        const code = { ok: '✅ 通過', fail: '❌ 失敗（已重試 3 次）', skip: '—' }[ck.code] || '—';
+        const zip = { ok: '✅ 格式正確', fail: '❌ 有問題', none: '—' }[ck.zip] || '—';
+        kids.push(el('p', 'checkline', `🔎 自動驗證（每次確認安裝都會重跑）：Claude Code 安裝測試 ${code} · Chat／Cowork zip ${zip}`));
+      }
       for (const p of Array.isArray(result.problems) ? result.problems : []) kids.push(el('p', 'warnline', `⚠️ ${p}`));
       const skills = list(result.skills);
       if (skills.length) kids.push(el('p', 'mmsg', `安裝後的技能名稱：${skills.join('、')}`));

@@ -200,12 +200,74 @@ def _build_one(repo: Path, stem: str, e: dict, inst: dict, pin: str | None, take
         return row, plugin
 
 
+VERIFY_TRIES = 3
+
+
+def check_zip(path: Path) -> str | None:
+    """None when the zip is uploadable: one top folder holding SKILL.md with name and description."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            if z.testzip() is not None:
+                return "zip 檔損壞"
+            names = z.namelist()
+            tops = {n.split("/")[0] for n in names}
+            if len(tops) != 1:
+                return "zip 最上層不是單一技能資料夾"
+            head = z.read(f"{tops.pop()}/SKILL.md").decode("utf-8", errors="replace")[:4000]
+    except (OSError, KeyError, zipfile.BadZipFile):
+        return "zip 裡找不到最上層的 SKILL.md"
+    if not (re.search(r"^name:\s*\S", head, re.M) and re.search(r"^description:\s*\S", head, re.M)):
+        return "SKILL.md 缺少 name 或 description"
+    return None
+
+
+def _claude(cfg: Path, *args: str) -> subprocess.CompletedProcess:
+    env = {**os.environ, "CLAUDE_CONFIG_DIR": str(cfg), "GIT_TERMINAL_PROMPT": "0", "DISABLE_AUTOUPDATER": "1"}
+    return subprocess.run(["claude", *args], capture_output=True, text=True, timeout=300, env=env)
+
+
+def verify(repo: Path, rows: list[dict]) -> None:
+    """Re-checks every bundle the way the owner will install it, retrying a failed Claude Code install.
+
+    Sets row["checks"] = {"code": ok|fail|skip, "zip": ok|fail|none, "detail": [...]}. Plugins are only
+    downloaded into a throwaway config dir, never run.
+    """
+    have_cli = shutil.which("claude") is not None
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = Path(tmp)
+        market_ok = have_cli and _claude(cfg, "plugin", "marketplace", "add", str(repo)).returncode == 0
+        for row in rows:
+            detail, code = [], "skip"
+            if row.get("name"):
+                if not market_ok:
+                    detail.append("這次沒辦法執行 Claude Code 安裝測試")
+                else:
+                    for attempt in range(1, VERIFY_TRIES + 1):
+                        r = _claude(cfg, "plugin", "install", f"{row['name']}@{MARKETPLACE}")
+                        if r.returncode == 0:
+                            code = "ok"
+                            if attempt > 1:
+                                detail.append(f"Claude Code 安裝測試第 {attempt} 次才成功")
+                            break
+                        code = "fail"
+                    if code == "fail":
+                        detail.append(f"Claude Code 安裝測試重試 {VERIFY_TRIES} 次都失敗：{(r.stderr or r.stdout).strip()[-200:]}")
+            zips = "none"
+            for z in row["zips"]:
+                err = check_zip(repo / z)
+                zips = "fail" if err or zips == "fail" else "ok"
+                if err:
+                    detail.append(f"{z.split('/')[-1]}：{err}")
+            row["checks"] = {"code": code, "zip": zips, "detail": detail}
+            row["problems"] += [d for d in detail if "失敗" in d or "zip" in d or "SKILL" in d]
+
+
 def _status(row: dict) -> str:
     usable = row["code_cmd"] or row["market_cmd"] or row["zips"]
     return "problem" if not usable else ("partial" if row["problems"] else "ready")
 
 
-def run(repo: Path, library: str, pages: str, skill_src: Path, now: str | None = None) -> dict:
+def run(repo: Path, library: str, pages: str, skill_src: Path, now: str | None = None, check: bool = False) -> dict:
     now = now or datetime.now(timezone.utc).isoformat(timespec="seconds")
     state, entries = load_state(repo), load_entries(repo)
     pins = previous_pins(repo)
@@ -231,12 +293,16 @@ def run(repo: Path, library: str, pages: str, skill_src: Path, now: str | None =
             row, plugin = _build_one(repo, stem, e, inst, pins.get(e["repo"].lower()), taken)
             if plugin:
                 plugins.append(plugin)
-        rows.append(row)
-        results[stem] = {**row, "sha": (row["sha"] or "")[:7] or None, "status": _status(row),
-                         "requested_at": str(state[stem].get("updated_at") or ""), "built_at": now}
+        rows.append((stem, row))
     (repo / ".claude-plugin").mkdir(parents=True, exist_ok=True)
     (repo / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
         {"name": MARKETPLACE, "owner": {"name": owner}, "plugins": plugins}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if check:
+        verify(repo, [r for _, r in rows])
+    for stem, row in rows:
+        results[stem] = {**row, "sha": (row["sha"] or "")[:7] or None, "status": _status(row),
+                         "requested_at": str(state[stem].get("updated_at") or ""), "built_at": now}
+    rows = [r for _, r in rows]
     (repo / "dist").mkdir(parents=True, exist_ok=True)
     (repo / "dist" / "installs.json").write_text(json.dumps({"v": 1, "built_at": now, "items": results},
                                                             ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -301,11 +367,12 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--pages", required=True)
     ap.add_argument("--skill-src", type=Path, required=True)
     ap.add_argument("--push", action="store_true")
+    ap.add_argument("--verify", action="store_true", help="install each plugin in a throwaway Claude Code config and check zips")
     a = ap.parse_args(argv)
     if not FULL_RE.match(a.library_name):
         print("bad --library-name", file=sys.stderr)
         return 2
-    counts = run(a.repo, a.library_name, a.pages, a.skill_src)
+    counts = run(a.repo, a.library_name, a.pages, a.skill_src, check=a.verify)
     if a.push:
         commit_and_push(a.repo, counts)
     print(json.dumps(counts, ensure_ascii=False))

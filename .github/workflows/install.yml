@@ -40,6 +40,10 @@ jobs:
       - name: Move scripts out of the worktree
         run: mv "$GITHUB_WORKSPACE/.github-box-install" "$BOX"
 
+      # Used only to re-check each bundle with the real `claude plugin install`; nothing is run.
+      - name: Install Claude Code for verification
+        run: npm install -g "@anthropic-ai/claude-code@2.1.310" && claude --version
+
       - name: Build marketplace and skill zips
         env:
           WF_REPO: ${{ job.workflow_repository }}
@@ -49,5 +53,5 @@ jobs:
           owner="${WF_REPO%%/*}"; name="${WF_REPO#*/}"
           pages="https://${owner,,}.github.io/${name}/"
           python3 "$BOX/action/scripts/install.py" --repo "$GITHUB_WORKSPACE" --library-name "$LIBRARY" \
-            --pages "$pages" --skill-src "$BOX/skill/github-box" --push | tee "$RUNNER_TEMP/install.json"
+            --pages "$pages" --skill-src "$BOX/skill/github-box" --verify --push | tee "$RUNNER_TEMP/install.json"
           jq -r '"## install\n- installed: \(.installed)\n" + (.problems | map("- " + .) | join("\n"))' "$RUNNER_TEMP/install.json" >> "$GITHUB_STEP_SUMMARY"
