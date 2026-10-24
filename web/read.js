@@ -318,27 +318,53 @@ function renderText(rec, legacy, extras = []) {
   $('col').replaceChildren(...parts, ...extras.filter(Boolean));
 }
 
-function renderGuide(rec) {
-  const note = text(rec.diagram_note);
-  const nodes = (Array.isArray(rec.diagram_nodes) ? rec.diagram_nodes : [])
+// 看懂架構圖: the plain-language note plus a node table, shown under the figure and beside the zoomed diagram.
+function guideNodes(rec) {
+  return (Array.isArray(rec.diagram_nodes) ? rec.diagram_nodes : [])
     .filter((n) => n && typeof n.label === 'string' && typeof n.zh === 'string' && typeof n.role === 'string');
-  if (!note && !nodes.length) {
-    $('guide').replaceChildren(el('p', 'note', '這筆還沒有架構圖說明，重新分析後會出現節點的中文翻譯與作用。'));
-    return;
-  }
+}
+
+function buildGuide(rec) {
+  const note = text(rec.diagram_note), nodes = guideNodes(rec);
+  if (!note && !nodes.length) return [el('p', 'note', '這筆還沒有架構圖說明，重新分析後會出現節點的中文翻譯與作用。')];
   const kids = [el('h2', null, '看懂架構圖')];
   if (note) kids.push(el('p', 'gnote', note));
   if (nodes.length) {
-    // Phones read top to bottom, so the node table folds away there to keep 能不能用 close.
-    const d = el('details', 'gnodes'); d.open = matchMedia('(min-width: 1000px)').matches;
-    d.append(el('summary', null, `節點中文翻譯（${nodes.length} 個）`));
-    kids.push(d);
     const t = el('table', 'spec nodes'); const body = el('tbody'); t.append(body);
     const head = el('tr'); head.append(el('th', null, '節點'), el('th', null, '中文'), el('th', null, '作用')); body.append(head);
-    for (const n of nodes) { const tr = el('tr'); tr.append(el('td', 'mono', n.label), el('td', null, n.zh), el('td', null, n.role)); body.append(tr); }
-    d.append(t);
+    for (const n of nodes) {
+      const tr = el('tr'); tr.dataset.label = n.label.trim().toLowerCase();
+      tr.append(el('td', 'mono', n.label), el('td', null, n.zh), el('td', null, n.role));
+      body.append(tr);
+    }
+    kids.push(t);
   }
-  $('guide').replaceChildren(...kids);
+  return kids;
+}
+
+let currentRec = {};
+
+function renderGuide(rec) {
+  currentRec = rec;
+  $('guide').replaceChildren(...buildGuide(rec));
+}
+
+const nodeTitle = (g) => (g.querySelector('text')?.textContent || '').trim().toLowerCase();
+
+// Tapping a node lights its row in the side panel; tapping a row lights the node, both ways.
+function linkGuide(svg, panel) {
+  const rows = [...panel.querySelectorAll('tr[data-label]')];
+  const light = (label) => {
+    rows.forEach((r) => r.classList.toggle('hit', r.dataset.label === label));
+    rows.find((r) => r.dataset.label === label)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  };
+  for (const g of svg.querySelectorAll('g.node')) g.addEventListener('click', () => light(nodeTitle(g)));
+  for (const r of rows) {
+    r.onclick = () => {
+      const g = [...svg.querySelectorAll('g.node')].find((x) => nodeTitle(x) === r.dataset.label);
+      if (g) g.dispatchEvent(new MouseEvent('click', { bubbles: true })); else light(r.dataset.label);
+    };
+  }
 }
 
 function renderDiagram(cfg, stem, svgRes) {
@@ -356,6 +382,9 @@ function renderDiagram(cfg, stem, svgRes) {
     const big = prepareSvg(svgRes.text, 'v');
     if (!big) return;
     wire(big, lightbox.isDrag);
+    $('lb-guide').replaceChildren(...buildGuide(currentRec));
+    $('lb-guide').scrollTop = 0;
+    linkGuide(big, $('lb-guide'));
     lightbox.open(big);
   };
   fig.onclick = zoom;
