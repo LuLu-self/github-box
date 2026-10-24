@@ -1,0 +1,6 @@
+# job.workflow_repository / job.workflow_sha are documented GitHub contexts that actionlint
+# 1.7.12 does not model yet; the analyze workflow fails closed at runtime if they are empty.
+paths:
+  .github/workflows/analyze.yml:
+    ignore:
+      - 'property "workflow_(repository|sha)" is not defined'

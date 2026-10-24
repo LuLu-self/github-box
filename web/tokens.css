@@ -1,0 +1,18 @@
+/* Shared design tokens for the capture page (index.html) and the reading page (read.html). */
+:root {
+  --paper: #f4f7fb; --grid: #dbe4f1; --grid-major: #c3d1e6;
+  --ink: #16233f; --mute: #5b6b85; --line: #16233f;
+  --cyan: #1f4fc4; --cyan-ink: #ffffff; --err: #c0392b; --field: #ffffffcc;
+  --sheet: #ffffff; --rule: #c3d1e6; --on-ink: #ffffff; --link: #1f4fc4;
+  --sans: system-ui, -apple-system, "Noto Sans TC", "PingFang TC", sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, monospace;
+  --gutter: max(16px, env(safe-area-inset-left));
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0e2f6b; --grid: #1a3f80; --grid-major: #24508f;
+    --ink: #eaf1ff; --mute: #a9bee3; --line: #cfdcf5;
+    --cyan: #eaf1ff; --cyan-ink: #0e2f6b; --err: #ffab9e; --field: #0b2758cc;
+    --sheet: #0b2758; --rule: #2a5598; --on-ink: #0e2f6b; --link: #9cc2ff;
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "repo": "XiaoPuOuO/openchatx-mcp",
+  "repo_id": 1383604528,
+  "url": "https://github.com/XiaoPuOuO/openchatx-mcp",
+  "description": "Turn ChatGPT into a local agent runtime. Operate your computer, use local tools, discover MCP servers, and delegate work to your own models through one MCP connection.",
+  "language": "TypeScript",
+  "stars": 316,
+  "stars_at": "2026-10-18",
+  "license": "MIT",
+  "category": "mcp-server",
+  "tags": [
+    "mcp",
+    "chatgpt",
+    "local-agent",
+    "desktop",
+    "toolbox"
+  ],
+  "stack": [
+    "TypeScript",
+    "Node.js",
+    "Express",
+    "MCP SDK",
+    "React",
+    "Vite",
+    "Swift",
+    "C#"
+  ],
+  "sightings": [
+    {
+      "id": "20261017-220340-881d",
+      "at": "2026-10-17T22:03:40+08:00",
+      "source": "",
+      "note": ""
+    }
+  ],
+  "analyzed_at": "2026-10-18T10:54:51+00:00",
+  "analysis": {
+    "model": "claude-opus-5-5",
+    "turns": 18,
+    "wall_s": 189,
+    "rounds": 0,
+    "deepwiki": false,
+    "diagram": true
+  },
+  "intro": "OpenChatX 讓你在一般的 ChatGPT 對話裡，直接請它操作你自己的電腦：讀寫檔案、執行指令、控制應用程式，或使用你接上的其他工具。它透過 OpenAI 官方的連線方式運作，不必另外架設 AI 代理程式（能自己分步驟完成任務的 AI 助手），長時間的工作也能換到新對話繼續做。",
+  "examples": [
+    "在 ChatGPT 說「幫我在專案資料夾找出所有 TODO 並整理成清單」，它會在你的電腦上搜尋檔案並回報結果。",
+    "對話快滿時請 ChatGPT 做摘要，拿到一組代碼後在新對話貼上，就能接著原本的工作繼續做。"
+  ],
+  "requirements": [
+    "平台：macOS（Apple Silicon 或 Intel）或 Windows（x64 或 ARM）；從原始碼安裝需 Node.js 22.18 以上",
+    "需要準備：ChatGPT 帳號，以及 OpenAI Platform 帳號用來建立安全通道與一組 API 金鑰",
+    "費用：軟體免費開源（MIT），使用一般 ChatGPT 對話額度，不消耗 Codex 額度"
+  ],
+  "summary": "OpenChatX 是以 TypeScript 撰寫的本機 MCP 伺服器與能力執行環境，透過 OpenAI 官方 tunnel-client 建立對外 HTTPS 安全通道，讓 ChatGPT 以自訂 MCP 應用呼叫本機工具。src/server 以 Express 提供 MCP 端點與 Dashboard API，src/mcp 的 server factory 負責註冊 src/tools 下的內建工具（shell、檔案、網頁、技能、規則、專案、摘要等）。src/toolbox 以沙箱執行使用者自訂的 TypeScript 工具，src/external-mcp 聚合外部 MCP 伺服器並處理 OAuth，src/subagents 則把工作委派給設定好的模型。ui 目錄是 React 與 Vite 寫的管理介面，desktop 目錄提供 Swift 與 C# 的 macOS 與 Windows 桌面外殼，並以 PM2 管理執行環境與通道程序。",
+  "highlights": [
+    "外部 MCP 與 Toolbox 的工具結構描述採延遲載入，讓 ChatGPT 的工具上下文保持精簡。",
+    "跨對話摘要以 UUID 交接，保存壓縮摘要加最近約 8k token 內容，取用後自動刪除。",
+    "API 金鑰與 OAuth 憑證存在作業系統憑證庫（Keychain／Credential Manager），不寫進設定檔。"
+  ],
+  "tagline": "用 ChatGPT 直接操作你的電腦"
+}

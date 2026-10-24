@@ -1,0 +1,61 @@
+# 通用短版 .gitignore(init.sh 鋪出時會改名為 .gitignore)。
+# stack-specific 的規則(例:*.pyc、.next/、target/)由 scaffolder 或 AI 依專案補上。
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editors(.vscode/ 不 ignore,常有共享設定)
+.idea/
+*.swp
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# 常見依賴/build 產物
+node_modules/
+dist/
+build/
+__pycache__/
+.venv/
+
+# Logs
+*.log
+
+# Windows download marker
+*:Zone.Identifier
+.al
+
+# Local-only file
+RepoBox 規格文件.md
+
+# >>> kit v5 (managed block — edit outside the markers) >>>
+.claude/
+.codex/
+.superpowers/
+CLAUDE.local.md
+PROJECT.toml
+docs/LESSONS.md
+docs/plans/
+docs/superpowers/plans/
+docs/decisions/
+*.local.toml
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+!.env.dist
+!.env.defaults
+!.env.*.example
+!.env.*.sample
+!.env.*.template
+!.env.*.dist
+!.env.*.defaults
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+# <<< kit v5 <<<

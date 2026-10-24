@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <title>GitHub Box</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="icon" href="icon-192.png" sizes="192x192" type="image/png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="theme-color" content="#f4f7fb" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e2f6b" media="(prefers-color-scheme: dark)">
+  <style>
+    /* One column: the link box on top, the library below; the page itself never scrolls. */
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; overflow: hidden; color: var(--ink); font: 16px/1.5 var(--sans); background-color: var(--paper);
+      /* One soft 40px grid: the dense 8px layer read as noise behind text (user feedback 2026-10-19). */
+      background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+    .sheet {
+      height: 100dvh; max-width: 1180px; margin: 0 auto;
+      padding: max(14px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+      display: flex; flex-direction: column; gap: 16px;
+    }
+    button, input { font: inherit; color: inherit; }
+    :focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+    header { display: flex; align-items: center; justify-content: space-between; }
+    .mark { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 19px; letter-spacing: -0.01em; }
+    .mark svg { width: 26px; height: 26px; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 6px; max-width: 60%;
+      padding: 6px 12px; border: 1.5px solid var(--line); border-radius: 999px;
+      background: var(--field); font-size: 13px; cursor: pointer;
+    }
+    .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--mute); flex: none; }
+    .chip[data-ok="1"] .dot { background: var(--cyan); }
+
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      min-height: 44px; padding: 0 16px; border-radius: 10px; cursor: pointer;
+      border: 2px solid var(--line); background: var(--field); font-weight: 600;
+    }
+    .btn.primary { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); }
+    .btn.small { min-height: 36px; padding: 0 12px; font-size: 14px; }
+    .btn:active { transform: translateY(1px); }
+    #add { display: flex; gap: 8px; }
+    #add input { flex: 1; min-width: 0; min-height: 50px; padding: 0 14px; border: 2px solid var(--line);
+                 border-radius: 10px; background: var(--field); font-size: 16px; }
+    #add .btn { min-height: 50px; padding: 0 22px; }
+
+    /* One status line under the box; it carries the confirm and retry buttons when needed. */
+    .status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 36px; margin-top: -6px; font-size: 14px; }
+    #status { font-weight: 700; }
+    #status:empty, #block-repo:empty { display: none; }
+    #block-repo { font-weight: 600; overflow-wrap: anywhere; }
+    #hint { color: var(--mute); }
+    #hint:empty { display: none; }
+    .status[data-state="err"] #status { color: var(--err); }
+    .status[data-state="ok"] #status::before { content: "✓ "; }
+    .block-actions { display: flex; gap: 8px; }
+    .block-actions:empty { display: none; }
+
+    /* Library: a category index beside a card grid (desktop), a swipeable category row above it (phone). */
+    .lib { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+    .lib-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+    .lib-head h2 { font-size: 16px; margin: 0; }
+    .lib-head a { font-size: 14px; color: var(--link); font-weight: 600; text-decoration: none; }
+    .lib-note { margin: 0; font-size: 13px; color: var(--err); }
+    .lib-note:empty { display: none; }
+    .lib-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+    .cats { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; flex: none; padding-bottom: 2px;
+            -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
+    .cats::-webkit-scrollbar { display: none; }
+    .cats button { flex: none; display: flex; align-items: baseline; gap: 6px; border: 1.5px solid var(--line); border-radius: 999px;
+                   background: var(--sheet); padding: 3px 12px; font-size: 14px; cursor: pointer; white-space: nowrap; }
+    .cats button span { font-size: 12px; color: var(--mute); font-variant-numeric: tabular-nums; }
+    .cats button[aria-pressed="true"] { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); font-weight: 600; }
+    .cats button[aria-pressed="true"] span { color: inherit; }
+    .cats .sep { display: none; }
+    /* Scrolls inside the one-screen layout; the scrollbar stays hidden like the rest of the page. */
+    #recent { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; padding: 2px 2px 28px;
+              display: grid; grid-template-columns: 1fr; gap: 12px; align-content: start; }
+    #recent::-webkit-scrollbar { display: none; }
+    .card { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border: 1.5px solid var(--line); border-radius: 10px;
+            background: var(--sheet); color: inherit; text-decoration: none; min-width: 0; }
+    .card:hover { border-width: 2px; padding: 13.5px 15.5px; }
+    .card .tl { font-size: 17px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+    .card .rp { font-size: 13px; color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .card .bd { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .card .bd span { font-size: 12px; border: 1px solid var(--rule); border-radius: 4px; padding: 0 7px; color: var(--mute); }
+    .card.pending { border-style: dashed; }
+    .card.failed { border-color: var(--err); }
+    .card.failed .tl { color: var(--err); }
+    #recent .empty { color: var(--mute); font-size: 14px; padding: 16px 2px; margin: 0; }
+    @media (min-width: 560px) { #recent { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+    dialog {
+      width: min(460px, 100%); max-width: 100%; max-height: 92dvh; margin: auto auto 0;
+      padding: 18px max(20px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+      border: 2px solid var(--line); border-bottom: 0; border-radius: 16px 16px 0 0;
+      background: var(--paper); color: var(--ink); overflow: auto;
+    }
+    dialog::backdrop { background: #0b1a3a66; }
+    dialog h2 { font-size: 17px; margin: 0 0 4px; }
+    dialog p { margin: 4px 0 12px; font-size: 14px; color: var(--mute); }
+    dialog label { display: block; margin: 10px 0 4px; font-size: 14px; font-weight: 600; }
+    dialog input { width: 100%; min-height: 44px; padding: 0 12px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--field); }
+    .drawer-actions { display: flex; gap: 8px; margin-top: 14px; }
+    .drawer-actions .btn { flex: 1; }
+    .desk { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--rule); }
+    .desk p { margin: 6px 0 0; }
+    @media (pointer: coarse) { .desk { display: none; } }
+    a.bm { display: inline-block; padding: 8px 14px; border: 2px dashed var(--line); border-radius: 10px;
+           color: inherit; text-decoration: none; font-weight: 600; background: var(--field); cursor: grab; white-space: nowrap; }
+    a.bm:not([href]) { cursor: default; color: var(--mute); border-color: var(--mute); }
+    @media (min-width: 900px) {
+      .sheet { padding-top: 32px; padding-bottom: 28px; gap: 18px; }
+      #add, .status { max-width: 760px; }
+      .lib-body { flex-direction: row; gap: 28px; }
+      .cats { flex-direction: column; overflow-x: hidden; overflow-y: auto; max-height: 100%; width: 200px; gap: 2px; align-self: start; padding: 8px; flex-wrap: nowrap;
+              background: var(--sheet); border: 1.5px solid var(--line); border-radius: 10px; -webkit-mask-image: none; mask-image: none; }
+      .cats button { justify-content: space-between; border: 0; border-radius: 8px; padding: 6px 10px; background: transparent; }
+      .cats button[aria-pressed="true"] { background: var(--cyan); }
+      .cats .sep { display: block; height: 1px; background: var(--rule); margin: 8px 4px; }
+      #recent { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+      dialog { margin: auto; border-bottom: 2px solid var(--line); border-radius: 16px; max-height: 86dvh; padding: 22px 24px; }
+    }
+    .q { flex: 1; min-width: 0; max-width: 320px; margin-left: auto; padding: 5px 10px; font: inherit; font-size: 14px; color: inherit;
+         border: 1.5px solid var(--line); border-radius: 8px; background: var(--field); }
+    .stats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .stats:empty { display: none; }
+    .stats span { border: 1.5px solid var(--line); border-radius: 8px; padding: 2px 10px; font-size: 13px; background: var(--sheet); white-space: nowrap; }
+    .stats b { font-variant-numeric: tabular-nums; margin-left: 4px; }
+    .ios { margin-top: 14px; font-size: 13px; }
+    .ios pre { user-select: all; -webkit-user-select: all; padding: 6px 8px; border: 1.5px dashed var(--line); border-radius: 8px; }
+    details { margin-top: 14px; font-size: 13px; color: var(--mute); }
+    pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; margin: 6px 0 0; }
+  </style>
+</head>
+<body>
+  <main class="sheet">
+    <header>
+      <div class="mark">
+        <svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+          <path d="M3 8l10-5 10 5v10l-10 5-10-5z"/><path d="M3 8l10 5 10-5M13 13v10"/>
+        </svg>
+        GitHub Box
+      </div>
+      <button id="conn" class="chip" type="button" aria-haspopup="dialog"><i class="dot"></i><span>尚未設定</span></button>
+    </header>
+
+    <form id="add">
+      <input id="add-url" placeholder="貼上 GitHub 連結" autocomplete="off" inputmode="url" aria-label="GitHub 連結">
+      <button class="btn primary" type="submit">收藏</button>
+    </form>
+    <div id="block" class="status" data-state="idle" aria-live="polite">
+      <span id="status"></span><span id="block-repo"></span><span id="hint">iPhone：在 Threads 按分享 › 捷徑「收進 GitHub Box」。</span>
+      <div id="block-actions" class="block-actions"></div>
+    </div>
+
+    <section class="lib">
+      <div class="lib-head">
+        <h2>書庫</h2>
+        <input id="q" class="q" type="search" placeholder="搜尋用途、情境、標籤" autocomplete="off" aria-label="搜尋收藏">
+        <a id="library" href="#" target="_blank" rel="noopener">GitHub ↗</a>
+      </div>
+      <div id="stats" class="stats" aria-label="收藏總覽"></div>
+      <p id="lib-note" class="lib-note" role="status"></p>
+      <div class="lib-body">
+        <nav id="cats" class="cats" aria-label="分類"></nav>
+        <div id="recent" aria-live="polite"></div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="drawer" aria-labelledby="drawer-title">
+    <h2 id="drawer-title">連結收藏庫</h2>
+    <p>只需要設定一次。token 只存在這個瀏覽器，只會送到 GitHub。</p>
+    <form id="settings">
+      <label for="repo">收藏庫（帳號/repo 名稱）</label>
+      <input id="repo" placeholder="your-name/github-box-library" autocomplete="off" autocapitalize="off">
+      <label for="token">Fine-grained token</label>
+      <input id="token" type="password" autocomplete="off" placeholder="github_pat_…">
+      <div class="drawer-actions">
+        <button id="drawer-close" class="btn" type="button" autofocus>關閉</button>
+        <button class="btn primary" type="submit">儲存</button>
+      </div>
+    </form>
+    <section class="desk" aria-label="電腦書籤">
+      <a id="bookmarklet" class="bm" href="#">收進 GitHub Box</a>
+      <p>把這顆按鈕拖到書籤列，之後在 GitHub repo 頁面按一下就收下。</p>
+    </section>
+    <section class="ios" aria-label="iPhone 捷徑">
+      <p><b>iPhone 捷徑網址</b>：建立捷徑時，把這串放在「打開 URL」最前面，後面接分享進來的網址（要先在 Safari 打開這頁並儲存設定）。</p>
+      <pre id="shortcut-url">（先儲存設定）</pre>
+    </section>
+    <details>
+      <summary>最後一次收到的分享內容</summary>
+      <pre id="received">（沒有）</pre>
+    </details>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

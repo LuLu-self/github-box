@@ -1,0 +1,4 @@
+{"type": "system", "subtype": "init"}
+{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Read", "input": {"file_path": "/t/a.py"}}]}}
+{"type": "user", "message": {"content": []}}
+not json

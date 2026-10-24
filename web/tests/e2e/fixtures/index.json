@@ -1,0 +1,122 @@
+{
+  "generated_at": "2026-10-18T18:07:45+00:00",
+  "count": 3,
+  "entries": [
+    {
+      "repo": "michael-denyer/pstack-claude",
+      "repo_id": 1250276806,
+      "url": "https://github.com/michael-denyer/pstack-claude",
+      "description": "Claude Code, Codex, Copilot, Pi, OpenCode, Gemini, and Prime Agent versions of Poteto's pstack. Rigorous agent workflows with Cursor primitives translated for other harnesses.",
+      "intro": "pstack 是一套給 AI 寫程式助手（如 Claude Code、Codex）用的工作方法包，你只要說出目標，它就會自動挑選合適的流程，例如先重現問題、調查原因、修好後再驗證。適合希望 AI 寫出的程式更精簡、更可靠，而且有證據證明真的修好的人。",
+      "language": "JavaScript",
+      "stars": 2947,
+      "license": "MIT",
+      "category": "dev-tool",
+      "tags": [
+        "claude-code",
+        "agent-skills",
+        "codex",
+        "workflow",
+        "code-review"
+      ],
+      "stack": [
+        "Markdown",
+        "TypeScript",
+        "JavaScript",
+        "Bun",
+        "Bash",
+        "PowerShell",
+        "Lean 4"
+      ],
+      "analyzed_at": "2026-10-18T17:57:37+00:00",
+      "md": "library/michael-denyer__pstack-claude.md",
+      "last_seen": "2026-10-18T13:11:31+08:00",
+      "sightings_n": 1,
+      "svg": "library/michael-denyer__pstack-claude.svg",
+      "tagline": "讓 AI 寫程式照嚴謹流程做事",
+      "requirements": [
+        "平台：Claude Code、Codex、Pi、GitHub Copilot CLI，或 OpenCode、Gemini CLI 等能讀取技能資料夾的 AI 程式助理",
+        "需要準備：可用的 AI 模型帳號；處理 PR 的功能需先登入 GitHub CLI",
+        "費用：本身免費開源（MIT），模型使用量依你的 AI 服務方案計費"
+      ]
+    },
+    {
+      "repo": "XiaoPuOuO/openchatx-mcp",
+      "repo_id": 1383604528,
+      "url": "https://github.com/XiaoPuOuO/openchatx-mcp",
+      "description": "Turn ChatGPT into a local agent runtime. Operate your computer, use local tools, discover MCP servers, and delegate work to your own models through one MCP connection.",
+      "intro": "OpenChatX 讓你在一般的 ChatGPT 對話裡，直接請它操作你自己的電腦：讀寫檔案、執行指令、控制應用程式，或使用你接上的其他外掛工具。它是一個裝在本機的桌面程式，透過 OpenAI 官方的安全通道和 ChatGPT 連線，所以不用自己架設 AI 代理系統，也不用開放電腦對外的連線埠。",
+      "language": "TypeScript",
+      "stars": 323,
+      "license": "MIT",
+      "category": "mcp-server",
+      "tags": [
+        "mcp",
+        "chatgpt",
+        "local-agent",
+        "mcp-gateway",
+        "desktop-app"
+      ],
+      "stack": [
+        "TypeScript",
+        "Node.js",
+        "Express",
+        "MCP TypeScript SDK",
+        "React",
+        "Vite",
+        "Swift",
+        "C#"
+      ],
+      "analyzed_at": "2026-10-18T18:07:45+00:00",
+      "md": "library/xiaopuouo__openchatx-mcp.md",
+      "last_seen": "2026-10-17T22:03:40+08:00",
+      "sightings_n": 1,
+      "svg": "library/xiaopuouo__openchatx-mcp.svg",
+      "tagline": "用 ChatGPT 直接操作你的電腦",
+      "requirements": [
+        "平台：macOS（Apple Silicon 或 Intel）或 Windows（x64 或 ARM）；從原始碼安裝需 Node.js 22.18 以上",
+        "需要準備：ChatGPT 帳號（可建立自訂 MCP App）、OpenAI Platform 上建立的 Tunnel 與 API 金鑰",
+        "費用：軟體為 MIT 開源免費，使用一般 ChatGPT 聊天額度"
+      ]
+    },
+    {
+      "repo": "SquirrelRay/LiveSummary",
+      "repo_id": 1420601963,
+      "url": "https://github.com/SquirrelRay/LiveSummary",
+      "description": "直播摘要：即時轉錄、摘要、翻譯 Twitch 與 YouTube 直播",
+      "intro": "直播摘要是一款 Windows 小工具，看 Twitch 或 YouTube 直播時，會把直播主說的話即時轉成文字，每分鐘和每個話題整理成重點，外語直播還能顯示中文字幕。適合晚到、中途離開或聽不懂日文的觀眾，回來看一眼摘要就知道剛剛聊了什麼。",
+      "language": "Python",
+      "stars": 13,
+      "license": "GPL-3.0",
+      "category": "desktop-app",
+      "tags": [
+        "livestream",
+        "transcription",
+        "summarization",
+        "translation",
+        "twitch"
+      ],
+      "stack": [
+        "Python",
+        "PySide6",
+        "faster-whisper",
+        "CTranslate2",
+        "streamlink",
+        "yt-dlp",
+        "Anthropic SDK",
+        "OpenCC"
+      ],
+      "analyzed_at": "2026-10-18T18:03:20+00:00",
+      "md": "library/squirrelray__livesummary.md",
+      "last_seen": "2026-10-17T21:19:43+08:00",
+      "sightings_n": 1,
+      "svg": "library/squirrelray__livesummary.svg",
+      "tagline": "看直播時即時轉文字、做摘要",
+      "requirements": [
+        "平台：Windows 10 或 11（64 位元），下載解壓縮後直接執行，不用安裝",
+        "需要準備：網路連線、自己的 AI 服務 API 金鑰（存取 AI 服務的密碼，預設 Claude）；有 NVIDIA 顯示卡會更快",
+        "費用：程式免費；AI 服務依用量計費，預設模型翻譯外語直播約每小時 0.1 美元"
+      ]
+    }
+  ]
+}

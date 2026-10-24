@@ -1,0 +1,179 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" role="img" aria-labelledby="docsearch-title docsearch-desc" font-family="'JetBrains Mono',monospace">
+  <title id="docsearch-title">DocSearch system overview</title>
+  <desc id="docsearch-desc">A browser SPA calls an API server and query service; the query service reads PostgreSQL and a vector DB and calls an LLM API, while an offline ingest pipeline fills object storage and the vector index.</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#1a1a1a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <symbol id="icon-browser" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2" y="4" width="20" height="16" rx="2"/>
+      <line x1="2" y1="9" x2="22" y2="9"/>
+      <circle cx="5.5" cy="6.5" r="0.5"/>
+      <circle cx="8" cy="6.5" r="0.5"/>
+    </symbol>
+    <symbol id="icon-terminal" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2" y="4" width="20" height="16" rx="2"/>
+      <path d="M6 10l3 2-3 2"/>
+      <line x1="11" y1="15" x2="16" y2="15"/>
+    </symbol>
+    <symbol id="icon-server" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="4" width="18" height="7" rx="2"/>
+      <rect x="3" y="13" width="18" height="7" rx="2"/>
+      <circle cx="7" cy="7.5" r="0.6"/>
+      <circle cx="7" cy="16.5" r="0.6"/>
+    </symbol>
+    <symbol id="icon-database" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <ellipse cx="12" cy="6" rx="8" ry="3"/>
+      <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/>
+      <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>
+    </symbol>
+    <symbol id="icon-bucket" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 6h16l-2 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L4 6z"/>
+      <ellipse cx="12" cy="6" rx="8" ry="2.2"/>
+    </symbol>
+    <symbol id="icon-shield" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z"/>
+      <path d="M9 12l2 2 4-4"/>
+    </symbol>
+    <symbol id="icon-chip" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="6" y="6" width="12" height="12" rx="2"/>
+      <rect x="9.5" y="9.5" width="5" height="5"/>
+      <path d="M9 6V3M15 6V3M9 21v-3M15 21v-3M6 9H3M6 15H3M21 9h-3M21 15h-3"/>
+    </symbol>
+    <symbol id="icon-search" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="10.5" cy="10.5" r="6.5"/>
+      <line x1="15.5" y1="15.5" x2="21" y2="21"/>
+    </symbol>
+    <symbol id="icon-sparkle" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"/>
+      <path d="M19 16l.9 2.1L22 19l-2.1.9L19 22l-.9-2.1L16 19l2.1-.9L19 16z"/>
+    </symbol>
+  </defs>
+
+  <!-- 背景 -->
+  <rect width="1200" height="720" fill="#faf8f4"/>
+
+  <!-- 主標題 -->
+  <text x="600" y="84" font-size="28" letter-spacing="6" text-anchor="middle" fill="#1a1a1a">DOCSEARCH · SYSTEM OVERVIEW</text>
+
+  <!-- 分區容器 -->
+  <g class="zone" id="zone-frontend" fill="none" stroke="#1a1a1a">
+    <rect x="60" y="120" width="720" height="152" rx="16" stroke-width="1.2" stroke-dasharray="5 5"/>
+    <text x="84" y="148" font-size="16" letter-spacing="3" fill="#1a1a1a" stroke="none">FRONTEND</text>
+    <line x1="84" y1="156" x2="132" y2="156" stroke-width="1"/>
+  </g>
+  <g class="zone" id="zone-backend" fill="none" stroke="#1a1a1a">
+    <rect x="60" y="312" width="720" height="152" rx="16" stroke-width="1.2" stroke-dasharray="5 5"/>
+    <text x="84" y="340" font-size="16" letter-spacing="3" fill="#1a1a1a" stroke="none">BACKEND</text>
+    <line x1="84" y1="348" x2="132" y2="348" stroke-width="1"/>
+  </g>
+  <g class="zone" id="zone-data" fill="none" stroke="#1a1a1a">
+    <rect x="60" y="504" width="720" height="152" rx="16" stroke-width="1.2" stroke-dasharray="5 5"/>
+    <text x="84" y="532" font-size="16" letter-spacing="3" fill="#1a1a1a" stroke="none">DATA</text>
+    <line x1="84" y1="540" x2="132" y2="540" stroke-width="1"/>
+  </g>
+  <g class="zone" id="zone-external" fill="none" stroke="#1a1a1a">
+    <rect x="820" y="120" width="320" height="240" rx="16" stroke-width="1.2" stroke-dasharray="5 5"/>
+    <text x="844" y="148" font-size="16" letter-spacing="3" fill="#1a1a1a" stroke="none">EXTERNAL</text>
+    <line x1="844" y1="156" x2="892" y2="156" stroke-width="1"/>
+  </g>
+  <g class="zone" id="zone-offline" fill="none" stroke="#1a1a1a">
+    <rect x="820" y="400" width="320" height="256" rx="16" stroke-width="1.2" stroke-dasharray="5 5"/>
+    <text x="844" y="428" font-size="16" letter-spacing="3" fill="#1a1a1a" stroke="none">OFFLINE PIPELINE</text>
+    <line x1="844" y1="436" x2="892" y2="436" stroke-width="1"/>
+  </g>
+
+  <!-- 連線（先畫線、後畫節點） -->
+  <g fill="none" stroke="#1a1a1a" stroke-width="1.5">
+    <path class="edge" id="e-browser-api" d="M420,248 V370" marker-end="url(#ah)"/>
+    <path class="edge" id="e-api-auth" d="M484,376 V292 H812 V216 H878" stroke-dasharray="4 4"/>
+    <path class="edge" id="e-api-query" d="M516,408 H558" marker-end="url(#ah)"/>
+    <path class="edge" id="e-query-postgres" d="M628,440 V520 H180 V562" marker-end="url(#ah)"/>
+    <path class="edge" id="e-query-vector" d="M692,440 V562" marker-end="url(#ah)"/>
+    <path class="edge" id="e-query-llm" d="M756,408 H796 V304 H878" marker-end="url(#ah)"/>
+    <path class="edge" id="e-ingest-embedder" d="M980,528 V562" marker-end="url(#ah)"/>
+    <path class="edge" id="e-ingest-storage" d="M884,496 H808 V540 H700 a8,8 0 0,0 -16,0 H420 V562" marker-end="url(#ah)"/>
+    <path class="edge" id="e-embedder-vector" d="M884,600 H762" marker-end="url(#ah)"/>
+    <path class="edge" id="e-embedder-llm" d="M1076,600 H1108 V304 H1082" marker-end="url(#ah)"/>
+  </g>
+
+  <!-- 節點 -->
+  <g class="node" id="n-browser">
+    <rect x="324" y="184" width="192" height="64" rx="10" fill="#faf8f4" stroke="#1a1a1a" stroke-width="1.5"/>
+    <use href="#icon-browser" x="340" y="204" width="24" height="24"/>
+    <text x="380" y="212" font-size="14" font-weight="600" fill="#1a1a1a">Browser SPA</text>
+    <text x="380" y="230" font-size="11" fill="#1a1a1a" fill-opacity="0.65">Search + reading UI</text>
+  </g>
+  <g class="node" id="n-api">
+    <rect x="324" y="376" width="192" height="64" rx="10" fill="#faf8f4" stroke="#1a1a1a" stroke-width="1.5"/>
+    <use href="#icon-server" x="340" y="396" width="24" height="24"/>
+    <text x="380" y="404" font-size="14" font-weight="600" fill="#1a1a1a">API Server</text>
+    <text x="380" y="422" font-size="11" fill="#1a1a1a" fill-opacity="0.65">REST entry + authz</text>
+  </g>
+  <g class="node" id="n-query">
+    <rect x="564" y="376" width="192" height="64" rx="10" fill="#faf8f4" stroke="#1a1a1a" stroke-width="1.5"/>
+    <use href="#icon-search" x="580" y="396" width="24" height="24"/>
+    <text x="620" y="404" font-size="14" font-weight="600" fill="#1a1a1a">Query Service</text>
+    <text x="620" y="422" font-size="11" fill="#1a1a1a" fill-opacity="0.65">Retrieval + answers</text>
+  </g>
+  <g class="node" id="n-auth">
+    <rect x="884" y="184" width="192" height="64" rx="10" fill="#faf8f4" stroke="#1a1a1a" stroke-width="1.5"/>
+    <use href="#icon-shield" x="900" y="204" width="24" height="24"/>
+    <text x="940" y="212" font-size="14" font-weight="600" fill="#1a1a1a">Auth Provider</text>
+    <text x="940" y="230" font-size="11" fill="#1a1a1a" fill-opacity="0.65">OIDC identity</text>
+  </g>
+  <g class="node" id="n-llm">
+    <rect x="884" y="272" width="192" height="64" rx="10" fill="#faf8f4" stroke="#1a1a1a" stroke-width="1.5"/>
+    <use href="#icon-sparkle" x="900" y="292" width="24" height="24"/>
+    <text x="940" y="300" font-size="14" font-weight="600" fill="#1a1a1a">LLM API</text>
+    <text x="940" y="318" font-size="11" fill="#1a1a1a" fill-opacity="0.65">Generative model API</text>
+  </g>
+  <g class="node" id="n-ingest">
+    <rect x="884" y="464" width="192" height="64" rx="10" fill="#faf8f4" stroke="#1a1a1a" stroke-width="1.5"/>
+    <use href="#icon-terminal" x="900" y="484" width="24" height="24"/>
+    <text x="940" y="492" font-size="14" font-weight="600" fill="#1a1a1a">Ingest CLI</text>
+    <text x="940" y="510" font-size="11" fill="#1a1a1a" fill-opacity="0.65">Import + chunking</text>
+  </g>
+  <g class="node" id="n-embedder">
+    <rect x="884" y="568" width="192" height="64" rx="10" fill="#faf8f4" stroke="#1a1a1a" stroke-width="1.5"/>
+    <use href="#icon-chip" x="900" y="588" width="24" height="24"/>
+    <text x="940" y="596" font-size="14" font-weight="600" fill="#1a1a1a">Embedder</text>
+    <text x="940" y="614" font-size="11" fill="#1a1a1a" fill-opacity="0.65">Text embeddings</text>
+  </g>
+  <g class="node" id="n-postgres">
+    <rect x="84" y="568" width="192" height="64" rx="10" fill="#faf8f4" stroke="#1a1a1a" stroke-width="1.5"/>
+    <use href="#icon-database" x="100" y="588" width="24" height="24"/>
+    <text x="140" y="596" font-size="14" font-weight="600" fill="#1a1a1a">PostgreSQL</text>
+    <text x="140" y="614" font-size="11" fill="#1a1a1a" fill-opacity="0.65">Users + doc metadata</text>
+  </g>
+  <g class="node" id="n-storage">
+    <rect x="324" y="568" width="192" height="64" rx="10" fill="#faf8f4" stroke="#1a1a1a" stroke-width="1.5"/>
+    <use href="#icon-bucket" x="340" y="588" width="24" height="24"/>
+    <text x="380" y="596" font-size="14" font-weight="600" fill="#1a1a1a">Object Storage</text>
+    <text x="380" y="614" font-size="11" fill="#1a1a1a" fill-opacity="0.65">Raw document files</text>
+  </g>
+  <g class="node" id="n-vector">
+    <rect x="564" y="568" width="192" height="64" rx="10" fill="#faf8f4" stroke="#1a1a1a" stroke-width="1.5"/>
+    <use href="#icon-database" x="580" y="588" width="24" height="24"/>
+    <text x="620" y="596" font-size="14" font-weight="600" fill="#1a1a1a">Vector DB</text>
+    <text x="620" y="614" font-size="11" fill="#1a1a1a" fill-opacity="0.65">Vector index</text>
+  </g>
+
+  <!-- 資料流標籤（只標 payload 不明顯的線） -->
+  <g class="label" id="l-prompt" data-edge="e-query-llm">
+    <rect x="741" y="346" width="49" height="14" fill="#faf8f4"/>
+    <text x="745" y="356" font-size="10" letter-spacing="1" fill="#1a1a1a">PROMPT</text>
+  </g>
+  <g class="label" id="l-embeddings" data-edge="e-embedder-vector">
+    <rect x="784" y="580" width="77" height="14" fill="#faf8f4"/>
+    <text x="788" y="590" font-size="10" letter-spacing="1" fill="#1a1a1a">EMBEDDINGS</text>
+  </g>
+  <g class="label" id="l-raw-pdf" data-edge="e-ingest-storage">
+    <rect x="524" y="546" width="56" height="14" fill="#faf8f4"/>
+    <text x="528" y="556" font-size="10" letter-spacing="1" fill="#1a1a1a">RAW PDF</text>
+  </g>
+  <g class="label" id="l-id-token" data-edge="e-api-auth">
+    <rect x="616" y="298" width="63" height="14" fill="#faf8f4"/>
+    <text x="620" y="308" font-size="10" letter-spacing="1" fill="#1a1a1a">ID TOKEN</text>
+  </g>
+</svg>

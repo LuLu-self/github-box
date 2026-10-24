@@ -1,0 +1,356 @@
+name: repobox-analyze
+
+# Reusable workflow: callers pin it by commit SHA and pass their Claude token.
+on:
+  workflow_call:
+    inputs:
+      url:
+        description: GitHub repo URL to (re)analyze; empty = process inbox
+        type: string
+        required: false
+        default: ''
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  CLAUDE_CODE_VERSION: 2.1.302
+  ARCH_BLUEPRINT_SHA: 3d48c959c889701fa9f02c14830f1a05d23aab6b
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      items: ${{ steps.list.outputs.items }}
+    steps:
+      # Runs are serialized by the caller's concurrency group; checking out the branch tip
+      # (not github.sha) makes a queued run see what the previous run already published.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.ref }}
+          sparse-checkout: inbox
+          persist-credentials: false
+
+      # job.workflow_* name this reusable workflow's own repo and commit; github.sha is the caller's.
+      - name: Locate pipeline scripts
+        env:
+          WF_REPO: ${{ job.workflow_repository }}
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          echo "workflow: ${WF_REPO:-<empty>}@${WF_SHA:-<empty>}"
+          [ -n "$WF_REPO" ] && [ -n "$WF_SHA" ] || { echo "::error::job.workflow_repository/sha empty"; exit 1; }
+          echo "REPOBOX=$GITHUB_WORKSPACE/.repobox" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .repobox
+          sparse-checkout: action
+          persist-credentials: false
+
+      - id: list
+        env:
+          INPUT_URL: ${{ inputs.url }}
+        run: |
+          set -euo pipefail
+          mkdir -p inbox
+          items=$(python3 "$REPOBOX/action/scripts/items.py" --inbox inbox --url "$INPUT_URL" --run-id "$GITHUB_RUN_ID")
+          echo "items=$items" >> "$GITHUB_OUTPUT"
+          echo "$items" | jq -r '.[] | "\(.id)  \(.url // ("ERROR: " + .error))"'
+
+  analyze:
+    needs: plan
+    if: needs.plan.outputs.items != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        item: ${{ fromJSON(needs.plan.outputs.items) }}
+    steps:
+      # $OUT is the only directory Claude may write and starts empty; control files live in
+      # $STAGE, outside every --add-dir, and $STAGE is what gets uploaded.
+      - name: Set paths
+        env:
+          ITEM: ${{ toJSON(matrix.item) }}
+        run: |
+          {
+            echo "WORK=$RUNNER_TEMP/work"
+            echo "OUT=$RUNNER_TEMP/out"
+            echo "STAGE=$RUNNER_TEMP/stage"
+            echo "TARGET=$RUNNER_TEMP/target"
+            echo "AB=$RUNNER_TEMP/arch-blueprint"
+            echo "REPOBOX=$GITHUB_WORKSPACE/.repobox"
+          } >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/work" "$RUNNER_TEMP/out" "$RUNNER_TEMP/stage" "$RUNNER_TEMP/arch-blueprint"
+          printf '%s\n' "$ITEM" > "$RUNNER_TEMP/stage/item.json"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.ref }}
+          sparse-checkout: library
+          persist-credentials: false
+
+      - name: Locate pipeline scripts
+        env:
+          WF_REPO: ${{ job.workflow_repository }}
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          echo "workflow: ${WF_REPO:-<empty>}@${WF_SHA:-<empty>}"
+          [ -n "$WF_REPO" ] && [ -n "$WF_SHA" ] || { echo "::error::job.workflow_repository/sha empty"; exit 1; }
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .repobox
+          sparse-checkout: action
+          persist-credentials: false
+
+      - name: Reject malformed capture
+        if: matrix.item.error != null
+        env:
+          ERR: ${{ matrix.item.error }}
+        run: python3 "$REPOBOX/action/scripts/status.py" "$STAGE/status.json" --status failed --error "$ERR"
+
+      - name: Resolve target repo
+        id: resolve
+        if: matrix.item.error == null
+        env:
+          URL: ${{ matrix.item.url }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          fail() { python3 "$REPOBOX/action/scripts/status.py" "$STAGE/status.json" --status failed --error "resolve: $1"; echo "::warning::$1"; exit 0; }
+          re='^https://github\.com/([A-Za-z0-9][A-Za-z0-9-]*)/([A-Za-z0-9._-]+)/?$'
+          [[ "$URL" =~ $re ]] || fail "not a repo url: $URL"
+          repo="${BASH_REMATCH[2]%.git}"
+          gh api "repos/${BASH_REMATCH[1]}/$repo" > "$STAGE/meta.json" 2> "$RUNNER_TEMP/gh.err" || fail "$(head -c 200 "$RUNNER_TEMP/gh.err")"
+          [ "$(jq -r .private "$STAGE/meta.json")" = "false" ] || { rm -f "$STAGE/meta.json"; fail "only public repos"; }
+          full=$(jq -r .full_name "$STAGE/meta.json")
+          {
+            echo "full=$full"
+            echo "repo_id=$(jq -r .id "$STAGE/meta.json")"
+            echo "ok=true"
+          } >> "$GITHUB_OUTPUT"
+
+      # Identity lookup always runs; force only decides whether Claude runs.
+      - name: Look up existing entry
+        id: lookup
+        if: steps.resolve.outputs.ok == 'true'
+        env:
+          FULL: ${{ steps.resolve.outputs.full }}
+          REPO_ID: ${{ steps.resolve.outputs.repo_id }}
+          FORCE: ${{ matrix.item.force }}
+        run: |
+          set -euo pipefail
+          entry=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import entry; from pathlib import Path; p = entry.find_entry(Path("library"), int(sys.argv[2]), sys.argv[3]); print(p.as_posix() if p else "")' "$REPOBOX/action/scripts" "$REPO_ID" "$FULL")
+          echo "entry=$entry" >> "$GITHUB_OUTPUT"
+          if [ "$FORCE" = "true" ] || [ -z "$entry" ]; then echo "analyze=true" >> "$GITHUB_OUTPUT"; else echo "analyze=false" >> "$GITHUB_OUTPUT"; fi
+          echo "existing entry: ${entry:-<none>}  force: $FORCE"
+
+      - name: Record sighting only
+        if: steps.lookup.outputs.analyze == 'false'
+        env:
+          ENTRY: ${{ steps.lookup.outputs.entry }}
+          REPO_ID: ${{ steps.resolve.outputs.repo_id }}
+        run: python3 "$REPOBOX/action/scripts/status.py" "$STAGE/status.json" --status dedup --entry "$ENTRY" --repo-id "$REPO_ID"
+
+      - name: Prepare inputs
+        if: steps.lookup.outputs.analyze == 'true'
+        timeout-minutes: 8
+        env:
+          FULL: ${{ steps.resolve.outputs.full }}
+        run: |
+          set -euo pipefail
+          # Symlinks would let Read reach outside $TARGET (e.g. /proc, ~/.claude): check them
+          # out as plain files, then drop any that slipped through.
+          git -c core.symlinks=false clone --depth 1 "https://github.com/$FULL.git" "$TARGET"
+          # Installability is read from file names before .claude/ (which may hold skills) is stripped.
+          python3 "$REPOBOX/action/scripts/detect.py" "$TARGET" > "$STAGE/install.json"
+          # Repo-supplied agent config (hooks, MCP servers, memory files) must never load;
+          # --add-dir directories are CLAUDE.md sources, so strip them at every depth.
+          rm -rf "$TARGET/.claude" "$TARGET/.mcp.json" "$TARGET/.git"
+          find "$TARGET" \( -name 'CLAUDE.md' -o -name 'CLAUDE.local.md' -o -name '.claude' \) -prune -exec rm -rf {} +
+          find "$TARGET" -type l -delete
+          git -C "$AB" init -q
+          git -C "$AB" fetch -q --depth 1 https://github.com/cholateio/arch-blueprint "$ARCH_BLUEPRINT_SHA"
+          git -C "$AB" checkout -q FETCH_HEAD
+          chmod -R a-w "$AB"
+          npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+          claude --version
+
+      # Hardening is enforced by flags, not by the prompt: --restricted ignores every settings
+      # file and confines file tools to the --add-dir set, and blockReadsOutsideWorkingDirectories
+      # fences Read/Glob/Grep again; dontAsk denies anything not allowlisted; Read/Edit allow
+      # rules use "//abs" paths ($TARGET etc. are absolute, so "/$TARGET" yields "//...").
+      # No MCP servers: any network tool is an exfiltration channel for an injected prompt.
+      # There is no Bash tool, so check.py runs here and its output goes back to Claude.
+      # The OAuth token lives only in an unexported shell variable handed to `claude` itself,
+      # so helper scripts parsing model output never inherit it.
+      - name: Analyze with Claude
+        id: claude
+        if: steps.lookup.outputs.analyze == 'true'
+        timeout-minutes: 20
+        working-directory: ${{ runner.temp }}/work
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          DISABLE_AUTOUPDATER: '1'
+          FULL: ${{ steps.resolve.outputs.full }}
+        run: |
+          set +e
+          TOKEN="$CLAUDE_CODE_OAUTH_TOKEN"; unset CLAUDE_CODE_OAUTH_TOKEN
+          S="$REPOBOX/action/scripts"
+          CHECK="$AB/skills/arch-blueprint/scripts/check.py"
+          TAX=-; TAXARG=()
+          if [ -f "$GITHUB_WORKSPACE/taxonomy.yml" ]; then TAX="$GITHUB_WORKSPACE/taxonomy.yml"; TAXARG=(--taxonomy "$TAX"); fi
+          FLAGS=(--model opus --output-format stream-json --verbose
+            --restricted --permission-mode dontAsk
+            --tools Read Glob Grep Write Edit
+            --strict-mcp-config
+            --settings '{"permissions": {"blockReadsOutsideWorkingDirectories": true}}'
+            --add-dir "$TARGET" --add-dir "$OUT" --add-dir "$AB"
+            --allowedTools "Read(/$TARGET/**)" "Read(/$OUT/**)" "Read(/$AB/**)" "Edit(/$OUT/**)"
+            --disallowedTools "Read(//proc/**)" "mcp__*")
+          claude_run() { CLAUDE_CODE_OAUTH_TOKEN="$TOKEN" claude "$@" "${FLAGS[@]}" < /dev/null; }
+          start=$(date +%s)
+          PROMPT=$(python3 "$S/prompt.py" analyze --full "$FULL" --target "$TARGET" --out "$OUT" \
+            --skill "$AB/skills/arch-blueprint/SKILL.md" --taxonomy "$TAX")
+          claude_run -p "$PROMPT" --max-turns 80 > "$RUNNER_TEMP/stream-0.jsonl"
+          rc=$?
+          python3 "$S/claude_stream.py" "$RUNNER_TEMP"/stream-*.jsonl "$STAGE/run.json"
+          SID=$(jq -r '.result.session_id // empty' "$STAGE/run.json")
+          if [ -n "$SID" ] && ! python3 "$S/validate.py" summary "$OUT/summary.json" "${TAXARG[@]}" > "$RUNNER_TEMP/summary-errs.txt"; then
+            FIXS=$(python3 "$S/prompt.py" fix-summary --out "$OUT" --errors "$RUNNER_TEMP/summary-errs.txt")
+            claude_run -p "$FIXS" --resume "$SID" --max-turns 10 > "$RUNNER_TEMP/stream-0s.jsonl"
+            python3 "$S/claude_stream.py" "$RUNNER_TEMP"/stream-*.jsonl "$STAGE/run.json"
+          fi
+          rounds=0
+          for round in 1 2; do
+            [ -f "$OUT/diagram.svg" ] && [ -n "$SID" ] || break
+            python3 "$CHECK" "$OUT/diagram.svg" > "$STAGE/check.txt" 2>&1 && break
+            rounds=$round
+            FIX=$(python3 "$S/prompt.py" fix --out "$OUT" --check "$STAGE/check.txt")
+            claude_run -p "$FIX" --resume "$SID" --max-turns 20 > "$RUNNER_TEMP/stream-$round.jsonl"
+            python3 "$S/claude_stream.py" "$RUNNER_TEMP"/stream-*.jsonl "$STAGE/run.json"
+          done
+          {
+            echo "exit=$rc"
+            echo "wall=$(( $(date +%s) - start ))"
+            echo "rounds=$rounds"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify outputs
+        if: steps.lookup.outputs.analyze == 'true'
+        env:
+          FULL: ${{ steps.resolve.outputs.full }}
+          ENTRY: ${{ steps.lookup.outputs.entry }}
+          REPO_ID: ${{ steps.resolve.outputs.repo_id }}
+          CLAUDE_EXIT: ${{ steps.claude.outputs.exit }}
+          WALL: ${{ steps.claude.outputs.wall }}
+          ROUNDS: ${{ steps.claude.outputs.rounds }}
+        run: |
+          set -uo pipefail
+          S="$REPOBOX/action/scripts"
+          CHECK="$AB/skills/arch-blueprint/scripts/check.py"
+          common=(--entry "$ENTRY" --repo-id "$REPO_ID" --rounds "${ROUNDS:-0}" --wall-s "${WALL:-0}" --claude-exit "${CLAUDE_EXIT:-}")
+          TAXARG=(); [ -f "$GITHUB_WORKSPACE/taxonomy.yml" ] && TAXARG=(--taxonomy "$GITHUB_WORKSPACE/taxonomy.yml")
+          extra=$(find "$OUT" -mindepth 1 ! -name summary.json ! -name diagram.svg -printf '%P\n')
+          if [ -n "$extra" ]; then
+            python3 "$S/status.py" "$STAGE/status.json" --status failed --error "unexpected files in out: $(echo "$extra" | head -5 | tr '\n' ' ')" "${common[@]}"
+          elif ! errs=$(python3 "$S/validate.py" summary "$OUT/summary.json" "${TAXARG[@]}"); then
+            python3 "$S/status.py" "$STAGE/status.json" --status failed --error "summary: $(echo "$errs" | head -5 | tr '\n' ' ')" "${common[@]}"
+          else
+            cp "$OUT/summary.json" "$STAGE/summary.json"
+            diagram=()
+            if [ -f "$OUT/diagram.svg" ] && python3 "$CHECK" "$OUT/diagram.svg" > "$STAGE/check.txt" 2>&1 \
+                && python3 "$S/validate.py" svg "$OUT/diagram.svg" >> "$STAGE/check.txt"; then
+              cp "$OUT/diagram.svg" "$STAGE/diagram.svg"
+              diagram=(--diagram)
+            fi
+            python3 "$S/status.py" "$STAGE/status.json" --status ok "${diagram[@]}" "${common[@]}"
+          fi
+          {
+            echo "## $FULL"
+            jq -r '"- status: \(.status)  diagram: \(.diagram)  fix rounds: \(.rounds)  wall: \(.wall_s)s  claude exit: \(.claude_exit)\n- error: \(.error // "-")"' "$STAGE/status.json"
+            jq -r '"- turns: \(.result.num_turns // "?")  deepwiki: \(.tools.deepwiki)  files read: \(.tools.files_read)  tools: \(.tools.by_name | to_entries | map("\(.key)=\(.value)") | join(", "))"' "$STAGE/run.json" 2>/dev/null || echo "- run.json missing"
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
+
+      # Must not depend on the scripts checkout, which may be the step that failed.
+      - name: Record pipeline failure
+        if: always()
+        run: |
+          stage="$RUNNER_TEMP/stage"
+          mkdir -p "$stage"
+          [ -f "$stage/status.json" ] || printf '%s\n' '{"status": "failed", "error": "pipeline: a workflow step failed or timed out", "entry": null, "repo_id": null, "diagram": false, "rounds": 0, "wall_s": 0, "claude_exit": null}' > "$stage/status.json"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: repobox-out-${{ matrix.item.id }}
+          path: ${{ runner.temp }}/stage
+          if-no-files-found: error
+
+  # The only job with write access. It never runs Claude and re-validates every artifact.
+  publish:
+    needs: [plan, analyze]
+    if: always() && needs.plan.result == 'success' && needs.plan.outputs.items != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Locate pipeline scripts
+        env:
+          WF_REPO: ${{ job.workflow_repository }}
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          echo "workflow: ${WF_REPO:-<empty>}@${WF_SHA:-<empty>}"
+          [ -n "$WF_REPO" ] && [ -n "$WF_SHA" ] || { echo "::error::job.workflow_repository/sha empty"; exit 1; }
+          echo "REPOBOX=$RUNNER_TEMP/repobox" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/artifacts"
+
+      # Scripts are checked out outside the library worktree so they can never be committed.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .repobox-publish
+          sparse-checkout: action
+          persist-credentials: false
+
+      - name: Move scripts out of the worktree
+        run: mv "$GITHUB_WORKSPACE/.repobox-publish" "$REPOBOX"
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: repobox-out-*
+          path: ${{ runner.temp }}/artifacts
+
+      - name: Publish to library
+        env:
+          ITEMS: ${{ needs.plan.outputs.items }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$ITEMS" > "$RUNNER_TEMP/items.json"
+          python3 "$REPOBOX/action/scripts/publish.py" --artifacts "$RUNNER_TEMP/artifacts" --repo "$GITHUB_WORKSPACE" \
+            --items "$RUNNER_TEMP/items.json" --push \
+            | tee "$RUNNER_TEMP/publish.json"
+          jq -r '"## publish\n- analyzed: \(.ok)  sightings only: \(.dedup)  failed: \(.failed) \(.failed_ids | join(", "))"' \
+            "$RUNNER_TEMP/publish.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail the run if any item failed
+        run: |
+          failed=$(jq .failed "$RUNNER_TEMP/publish.json")
+          [ "$failed" = 0 ] || { echo "::error::$failed item(s) moved to inbox/failed/"; exit 1; }
