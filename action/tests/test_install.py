@@ -151,6 +151,14 @@ class VerifyTest(unittest.TestCase):
                 z.writestr(k, v)
         return p
 
+    def test_zip_is_byte_identical_across_rebuilds(self):
+        src = self.root / "skill"; src.mkdir(); (src / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n")
+        install.zip_dir(src, self.root / "a.zip", "s")
+        import os, time
+        os.utime(src / "SKILL.md", (time.time() + 99, time.time() + 99))
+        install.zip_dir(src, self.root / "b.zip", "s")
+        self.assertEqual((self.root / "a.zip").read_bytes(), (self.root / "b.zip").read_bytes())
+
     def test_check_zip(self):
         ok = self.make_zip("ok.zip", {"s/SKILL.md": "---\nname: s\ndescription: d\n---\n"})
         self.assertIsNone(install.check_zip(ok))

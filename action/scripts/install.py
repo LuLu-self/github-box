@@ -94,9 +94,13 @@ def zip_dir(src: Path, out: Path, top: str) -> bool:
     if sum(p.stat().st_size for p in files) > ZIP_MAX:
         return False
     out.parent.mkdir(parents=True, exist_ok=True)
+    # Fixed timestamps keep an unchanged skill byte-identical, so a rebuild adds nothing to git history.
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for p in files:
-            z.write(p, f"{top}/{p.relative_to(src).as_posix()}")
+            info = zipfile.ZipInfo(f"{top}/{p.relative_to(src).as_posix()}", date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            z.writestr(info, p.read_bytes())
     return True
 
 
