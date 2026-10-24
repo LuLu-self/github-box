@@ -13,6 +13,8 @@ from pathlib import Path
 
 import yaml
 
+import profile
+
 START = "<!-- repobox:auto:start -->"
 END = "<!-- repobox:auto:end -->"
 USER_DEFAULT = "\n"
@@ -24,13 +26,14 @@ _MD_SPECIAL = re.compile(r"([\\`*_\[\]()#!|~])")
 # GFM autolinks bare URLs and emails even without link syntax; these go into code spans.
 _AUTOLINK = re.compile(r"(?:https?://|www\.)\S+|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", re.I)
 # Full record: written to the hidden sidecar library/<stem>.json.
-READING_KEYS = ("tagline", "intro", "examples", "requirements", "summary", "highlights", "purpose", "scenarios")
+READING_KEYS = ("tagline", "intro", "examples", "requirements", "summary", "highlights", "purpose", "scenarios",
+                "verdict", "verdict_reason", "capabilities", "fit", "risks", "unverified", "tasks")
 FM_KEYS = ("repo", "repo_id", "url", "description", "language", "stars", "stars_at", "license", "category",
-           "tags", "stack", *READING_KEYS, "sources", "installable", "sightings", "analyzed_at", "analysis")
+           "tags", "stack", "task_areas", *READING_KEYS, "sources", "installable", "activity", "sightings", "analyzed_at", "analysis")
 # Visible table: GitHub renders every frontmatter key, so only human-facing fields go here.
 DISPLAY_KEYS = ("repo", "repo_id", "url", "description", "language", "stars", "license", "category", "tags", "stack")
 SEEN_COUNT, LAST_SEEN = "收藏次數", "最後看到"
-CARRIED_ON_DEDUP = ("category", "tags", "stack", "analyzed_at", "analysis", *READING_KEYS, "sources", "installable")
+CARRIED_ON_DEDUP = ("category", "tags", "stack", "task_areas", "analyzed_at", "analysis", *READING_KEYS, "sources", "installable")
 PAGE_RE = re.compile(r"^https://[^\s<>\"']{1,300}$")
 
 
@@ -174,6 +177,8 @@ def build_frontmatter(meta: dict, analysis: dict | None, sightings: list[dict], 
         "stars": meta.get("stargazers_count"),
         "stars_at": now[:10],
         "license": lic.get("spdx_id") if isinstance(lic, dict) else None,
+        # Re-read on every sighting, so a repo that went stale or got archived since is shown as such.
+        "activity": profile.activity(meta, datetime.fromisoformat(now)),
     }
     if analysis is None:
         prev = prev or {}
@@ -183,6 +188,7 @@ def build_frontmatter(meta: dict, analysis: dict | None, sightings: list[dict], 
             "category": analysis["category"],
             "tags": list(analysis["tags"]),
             "stack": list(analysis["stack"]),
+            "task_areas": list(analysis["task_areas"]),
             "analyzed_at": now,
             "analysis": dict(run) if run is not None else None,
             "sources": list(analysis["sources"]),
@@ -203,11 +209,18 @@ def _source_links(full: str, sources: list[str]) -> str:
 def _auto_block(analysis: dict, svg_name: str | None, full: str) -> str:
     parts = [
         "\n> " + safe_text(analysis["tagline"]) + "\n",
+        "\n## 能不能用：" + safe_text(analysis["verdict"]) + "\n\n" + safe_text(analysis["verdict_reason"]) + "\n",
         "\n## 用途\n\n" + safe_text(analysis["purpose"]) + "\n",
         "\n## 適用情境\n\n" + "".join(f"- {safe_text(x)}\n" for x in analysis["scenarios"]),
         "\n## 這是什麼\n\n" + safe_text(analysis["intro"]) + "\n\n"
         + "".join(f"- **例如**：{safe_text(e)}\n" for e in analysis["examples"]),
         "\n## 使用門檻\n\n" + "".join(f"- {safe_text(r)}\n" for r in analysis["requirements"]),
+        "\n## 實際能力邊界\n\n" + "".join(f"- {safe_text(x)}\n" for x in analysis["capabilities"]),
+        "\n## 對你的應用場景（推論）\n\n" + "".join(f"- {safe_text(x)}\n" for x in analysis["fit"]),
+        "\n## 不適合的情況／風險（推論）\n\n" + "".join(f"- {safe_text(x)}\n" for x in analysis["risks"]),
+        ("\n## 待查證\n\n" + "".join(f"- {safe_text(x)}\n" for x in analysis["unverified"])) if analysis["unverified"] else "",
+        "\n## 可用在哪些任務\n\n" + "".join(f"- {safe_text(x)}\n" for x in analysis["tasks"])
+        + "\n任務類型：" + "、".join(safe_text(x) for x in analysis["task_areas"]) + "\n",
         "\n## 技術摘要\n\n" + safe_text(analysis["summary"]) + "\n",
         "\n## 值得借鏡\n\n" + "".join(f"- {safe_text(h)}\n" for h in analysis["highlights"]),
         "\n## 技術棧\n\n" + " · ".join(safe_text(s) for s in analysis["stack"]) + "\n",

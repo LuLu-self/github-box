@@ -1,6 +1,6 @@
 'use strict';
 
-import { loadIndex, loadState, mergeLibrary, matches, badges, categoryLabel, STATE_TEXT, TRIED } from './lib/library.mjs';
+import { loadIndex, loadState, mergeLibrary, matches, badges, categoryLabel, STATE_TEXT, TRIED, VERDICTS } from './lib/library.mjs';
 
 const CFG_KEY = 'repobox.cfg';
 const RESERVED_OWNERS = new Set([
@@ -42,6 +42,15 @@ function repoFromUrl(candidate, depth = 0) {
     if (target) return repoFromUrl(target, depth + 1);
   }
   return null;
+}
+
+function findAllGitHubRepos(text) {
+  const seen = new Set(), out = [];
+  for (const m of String(text || '').matchAll(CANDIDATE_RE)) {
+    const hit = repoFromUrl(m[0]);
+    if (hit && !seen.has(hit.url.toLowerCase())) { seen.add(hit.url.toLowerCase()); out.push(hit); }
+  }
+  return out;
 }
 
 function findGitHubRepo(...texts) {
@@ -131,7 +140,7 @@ async function submit(hit, ctx = {}) {
   const id = makeId(now);
   const capture = {
     v: 1, url: hit.url, captured_at: isoLocal(now), source: ctx.source || '',
-    page_url: ctx.page_url || '', note: '', client: 'pwa@1',
+    page_url: ctx.page_url || '', note: '', client: 'pwa@1', ...(ctx.preset ? { preset: ctx.preset } : {}),
   };
   try {
     const res = await fetch(`https://api.github.com/repos/${cfg.repo}/contents/inbox/${id}.json`, {
@@ -217,7 +226,7 @@ async function loadLib() {
 
 let libFilter = '';
 let libQuery = '';
-const PENDING = '__pending', FAILED = '__failed', TRIED_KEY = '__tried:', INSTALLED = '__installed';
+const PENDING = '__pending', FAILED = '__failed', TRIED_KEY = '__tried:', INSTALLED = '__installed', AREA_KEY = '__area:';
 
 function card(href, external, cls, title, repo, chips) {
   const a = document.createElement('a');
@@ -250,7 +259,9 @@ function renderStats(all) {
   if (!all.length) { $('stats').replaceChildren(); return; }
   const weekAgo = Date.now() - 7 * 86400000;
   const rows = [['收藏', all.length], ['本週新增', all.filter((it) => Date.parse(it.last_seen) >= weekAgo).length],
-    ...TRIED.map((t) => [t, all.filter((it) => it.tried === t).length]), ['可安裝', all.filter((it) => it.installable).length],
+    ...VERDICTS.map((v) => [v, all.filter((it) => it.verdict === v).length]), ['半年未更新／封存', all.filter((it) => it.health).length],
+    ...TRIED.map((t) => [t, all.filter((it) => it.tried === t).length]), ['原本就裝了', all.filter((it) => it.owned).length],
+    ['可安裝', all.filter((it) => it.installable).length],
     ['已確認安裝', all.filter((it) => it.install).length]];
   $('stats').replaceChildren(...rows.filter(([k, n]) => n || k === '收藏').map(([k, n]) => {
     const s = document.createElement('span'); const b = document.createElement('b'); b.textContent = String(n); s.append(k, b); return s;
@@ -271,13 +282,17 @@ function renderLibrary() {
   const counts = new Map();
   for (const it of entries) { const k = it.category || 'other'; counts.set(k, (counts.get(k) || 0) + 1); }
   const triedCounts = TRIED.slice(1).map((t) => [t, entries.filter((it) => it.tried === t).length]).filter(([, n]) => n);
+  const areaCounts = new Map();
+  for (const it of entries) for (const a of it.task_areas) areaCounts.set(a, (areaCounts.get(a) || 0) + 1);
   const installedN = entries.filter((it) => it.install).length;
-  const known = new Set(['', PENDING, FAILED, ...counts.keys(), ...triedCounts.map(([t]) => TRIED_KEY + t), ...(installedN ? [INSTALLED] : [])]);
+  const known = new Set(['', PENDING, FAILED, ...counts.keys(), ...triedCounts.map(([t]) => TRIED_KEY + t), ...(installedN ? [INSTALLED] : []), ...[...areaCounts.keys()].map((a) => AREA_KEY + a)]);
   if (!known.has(libFilter) || (libFilter === PENDING && !pending.length) || (libFilter === FAILED && !failed.length)) libFilter = '';
 
   const cats = [catButton('', '全部', entries.length)];
   const label = (k) => categoryLabel(k) || k;
   for (const [k, n] of [...counts].sort((a, b) => b[1] - a[1] || label(a[0]).localeCompare(label(b[0]), 'zh-Hant'))) cats.push(catButton(k, label(k), n));
+  if (areaCounts.size) { const sep = document.createElement('i'); sep.className = 'sep'; cats.push(sep); }
+  for (const [a, n] of [...areaCounts].sort((x, y) => y[1] - x[1])) cats.push(catButton(AREA_KEY + a, `任務：${a}`, n));
   if (triedCounts.length || installedN) { const sep = document.createElement('i'); sep.className = 'sep'; cats.push(sep); }
   for (const [t, n] of triedCounts) cats.push(catButton(TRIED_KEY + t, t, n));
   if (installedN) cats.push(catButton(INSTALLED, '已確認安裝', installedN));
@@ -297,12 +312,14 @@ function renderLibrary() {
   const gh = `https://github.com/${cfg.repo}`;
   const pendingCards = () => pending.map((it) => card(`${gh}/actions`, true, 'pending', it.repo, `分析中 · ${ago(it.at)}`, []));
   const failedCards = () => failed.map((it) => card(`${gh}/blob/main/inbox/failed/${it.id}.json`, true, 'failed', it.repo, `分析失敗 · ${ago(it.at)}`, []));
-  const chips = (it) => [...(it.tried !== '未試' ? [it.tried] : []), ...(it.install ? ['已安裝'] : []), ...badges(it.requirements)].slice(0, 4);
+  const chips = (it) => [...(it.verdict ? [it.verdict] : []), ...(it.health ? [it.health] : []), ...(it.tried !== '未試' ? [it.tried] : []),
+    ...(it.install ? ['已確認安裝'] : it.owned ? ['原本就裝了'] : []), ...badges(it.requirements)].slice(0, 4);
   const entryCards = (list) => list.map((it) => card(`read.html#${it.stem}`, false, '', it.tagline || it.intro || it.repo, it.purpose ? `${it.repo} · ${it.purpose}` : it.repo, chips(it)));
   let cards;
   if (libFilter === PENDING) cards = pendingCards();
   else if (libFilter === FAILED) cards = failedCards();
   else if (libFilter === INSTALLED) cards = entryCards(entries.filter((it) => it.install));
+  else if (libFilter.startsWith(AREA_KEY)) cards = entryCards(entries.filter((it) => it.task_areas.includes(libFilter.slice(AREA_KEY.length))));
   else if (libFilter.startsWith(TRIED_KEY)) cards = entryCards(entries.filter((it) => it.tried === libFilter.slice(TRIED_KEY.length)));
   else if (libFilter) cards = entryCards(entries.filter((it) => (it.category || 'other') === libFilter));
   else cards = [...pendingCards(), ...failedCards(), ...entryCards(entries)];
@@ -400,12 +417,16 @@ function init() {
 
   $('q').oninput = () => { libQuery = $('q').value; renderLibrary(); };
 
-  $('add').onsubmit = (e) => {
+  // One link, or a whole pasted list; 原本就裝了 marks them 在用 once analyzed.
+  $('add').onsubmit = async (e) => {
     e.preventDefault();
-    const hit = findGitHubRepo($('add-url').value);
-    if (!hit) { setRepo(''); setStatus('沒找到連結', 'err'); setHint('這段文字裡沒有 GitHub repo 連結。'); return; }
+    const hits = findAllGitHubRepos($('add-url').value);
+    if (!hits.length) { setRepo(''); setStatus('沒找到連結', 'err'); setHint('這段文字裡沒有 GitHub repo 連結。'); return; }
+    const ctx = { source: 'manual', ...($('owned').checked ? { preset: 'installed' } : {}) };
     $('add-url').value = '';
-    submit(hit, { source: 'manual' });
+    $('owned').checked = false;
+    for (const hit of hits) await submit(hit, ctx);
+    if (hits.length > 1) setHint(`這次收了 ${hits.length} 個，分析完會出現在書庫。`);
   };
 
   if (!cfg || !cfg.token) openDrawer();

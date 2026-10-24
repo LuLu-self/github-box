@@ -1,16 +1,18 @@
 """Render the analyze / fix prompts from action/prompts/*.md with string.Template.
 
-CLI: prompt.py analyze --full F --target T --out O --skill S --taxonomy <yml|->
+CLI: prompt.py analyze --full F --target T --out O --skill S --taxonomy <yml|-> [--meta meta.json] [--profile profile.md]
      prompt.py fix --out O --check <check.txt>
      prompt.py fix-summary --out O --errors <validator output>
 """
 from __future__ import annotations
 
 import argparse
+import json
 import string
 import sys
 from pathlib import Path
 
+import profile
 import taxonomy
 
 PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
@@ -24,12 +26,22 @@ def render(template: Path, **values: str) -> str:
     return string.Template(template.read_text(encoding="utf-8")).substitute(**values)
 
 
+def _meta(path: str) -> dict:
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8")) if path else {}
+    except (OSError, ValueError, UnicodeDecodeError):
+        data = {}
+    return data if isinstance(data, dict) else {}
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="kind", required=True)
     a = sub.add_parser("analyze")
     for flag in ("--full", "--target", "--out", "--skill", "--taxonomy"):
         a.add_argument(flag, required=True)
+    a.add_argument("--meta", default="")
+    a.add_argument("--profile", default="")
     f = sub.add_parser("fix")
     f.add_argument("--out", required=True)
     f.add_argument("--check", required=True)
@@ -40,7 +52,9 @@ def main(argv: list[str]) -> int:
     if args.kind == "analyze":
         cats = taxonomy.load_or_default(None if args.taxonomy == "-" else Path(args.taxonomy))
         text = render(ANALYZE, FULL=args.full, TARGET=args.target, OUT=args.out, SKILL=args.skill,
-                      TAXONOMY=taxonomy.render_for_prompt(cats))
+                      TAXONOMY=taxonomy.render_for_prompt(cats), TASK_AREAS=profile.render_areas(),
+                      PROFILE=profile.load_profile(Path(args.profile) if args.profile else None),
+                      ACTIVITY=profile.render_activity(_meta(args.meta)))
     elif args.kind == "fix":
         check = Path(args.check).read_text(encoding="utf-8", errors="replace")
         text = render(FIX, OUT=args.out, CHECK=check)

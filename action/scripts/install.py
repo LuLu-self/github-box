@@ -202,6 +202,11 @@ def render_install(library: str, pages: str, rows: list, marketplaces: list, pro
         "## Claude Chat 與 Cowork", "",
         "到 claude.ai › 設定 › Capabilities › Skills 上傳下面的 zip。在看板的條目頁也能直接下載。", "",
         f"- `dist/{SELF}.zip`：GitHub Box 本身（讓 Claude 查你的收藏、幫你收新連結）", "",
+        "## 讓 Claude 每次開始任務前先查收藏", "",
+        "skill 會自己判斷時機。想更確定的話，把下面這段加到 Claude Code 的 `~/.claude/CLAUDE.md`，"
+        "以及 claude.ai › 設定 › 個人偏好（Chat 和 Cowork 都會套用）：", "",
+        "```", "開始任何實質任務前，先用 github-box skill 查我的 GitHub 收藏裡有沒有適合這個任務的工具；"
+        "有就用一兩行推薦再開始，沒有就直接開始，不用說查過。", "```", "",
         "## 已確認安裝", "",
     ]
     if not rows:

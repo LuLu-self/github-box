@@ -1,7 +1,7 @@
 'use strict';
 
 import { prepareSvg, rejectedNotice, wire, draft, mountLightbox } from './lib/diagram.mjs';
-import { parseStem, stemOf, ghRaw, ghBlob, listZips, loadIndex, loadState, saveStateItem, stateItem, removeEntry, specRows, categoryLabel, STATE_TEXT, TRIED } from './lib/library.mjs';
+import { parseStem, stemOf, ghRaw, ghBlob, listZips, loadIndex, loadState, saveStateItem, stateItem, removeEntry, specRows, categoryLabel, STATE_TEXT, TRIED, VERDICTS, health } from './lib/library.mjs';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -101,7 +101,8 @@ function markSection(cfg, stem, rec, mark) {
   const paint = () => {
     seg.querySelectorAll('button').forEach((b) => { b.disabled = false; b.setAttribute('aria-checked', String(b.textContent === mark.tried)); });
     inst.disabled = !installable;
-    inst.textContent = !installable ? '不是 Claude 外掛／skill' : mark.install ? '✓ 已確認安裝（按一下取消）' : '確認安裝到 Claude';
+    inst.textContent = !installable ? (mark.owned ? '原本就裝了（不是 Claude 外掛／skill）' : '不是 Claude 外掛／skill')
+      : mark.install ? '✓ 已確認安裝（按一下取消）' : mark.owned ? '原本就裝了 · 也加進 GitHub Box 安裝清單' : '確認安裝到 Claude';
     inst.setAttribute('aria-pressed', String(mark.install));
   };
   for (const t of TRIED) {
@@ -159,8 +160,38 @@ function relatedSection(idx, stem) {
   return links.length ? section('相關收藏', ulOf(links)) : null;
 }
 
+function bullets(items) { const ul = el('ul', 'plain'); items.forEach((x) => ul.append(el('li', null, x))); return ul; }
+
+// The find-skill report, in its fixed order: 結論 → 活躍度 → 能力邊界 → 應用場景 → 風險 → 待查證.
+function verdictSection(rec) {
+  const verdict = VERDICTS.includes(rec.verdict) ? rec.verdict : '';
+  if (!verdict) return null;
+  const head = el('p', 'verdict'); head.dataset.v = verdict;
+  head.append(el('b', null, verdict), el('span', null, text(rec.verdict_reason)));
+  const kids = [head];
+  const act = rec.activity && typeof rec.activity === 'object' ? rec.activity : null;
+  if (act) {
+    const h = health(act);
+    const pushed = typeof act.pushed_at === 'string' ? `${day(act.pushed_at)}（${act.days_since_push} 天前）` : '待查證';
+    kids.push(el('p', h ? 'act warn' : 'act', `活躍度：最後更新 ${pushed}${h ? ` · ${h}` : ''} · 查詢於 ${day(act.checked_at)}`));
+  }
+  const groups = [['實際能力邊界', list(rec.capabilities)], ['對你的應用場景（推論）', list(rec.fit)],
+    ['不適合的情況／風險（推論）', list(rec.risks)], ['待查證', list(rec.unverified)]];
+  for (const [title, items] of groups) if (items.length) kids.push(el('b', 'sublbl', title), bullets(items));
+  return section('能不能用', ...kids);
+}
+
+function tasksSection(rec) {
+  const tasks = list(rec.tasks), areas = list(rec.task_areas);
+  if (!tasks.length && !areas.length) return null;
+  const kids = [];
+  if (tasks.length) kids.push(bullets(tasks));
+  if (areas.length) { const d = el('div', 'stack'); areas.forEach((a) => d.append(el('span', null, a))); kids.push(d); }
+  return section('可用在哪些任務', ...kids);
+}
+
 function renderText(rec, legacy, extras = []) {
-  const parts = [];
+  const parts = [verdictSection(rec)].filter(Boolean);
   const intro = text(rec.intro), examples = list(rec.examples), reqs = list(rec.requirements);
   const purpose = text(rec.purpose), scenarios = list(rec.scenarios);
   if (purpose || scenarios.length) {
@@ -186,6 +217,8 @@ function renderText(rec, legacy, extras = []) {
     parts.push(section('這是什麼', ...kids));
   }
   if (reqs.length) parts.push(section('使用門檻', specTable(reqs)));
+  const ts = tasksSection(rec);
+  if (ts) parts.push(ts);
   const t = legacy ? null : tabs(rec);
   if (t) parts.push(t);
   if (legacy || (!intro && !t)) parts.push(el('p', 'note', '這筆是舊格式，重新分析後會有完整內容。'));

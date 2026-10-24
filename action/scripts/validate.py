@@ -12,13 +12,21 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import profile
 import taxonomy
 
 CJK = re.compile(r"[一-鿿]")
 TAG_RE = re.compile(r"^[a-z0-9][a-z0-9.+-]{0,39}$")
 STACK_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .+#/-]{0,29}$")
 SUMMARY_KEYS = {"tagline", "intro", "examples", "requirements", "summary", "category", "tags", "stack", "highlights",
-                "purpose", "scenarios", "sources"}
+                "purpose", "scenarios", "sources", "verdict", "verdict_reason", "capabilities", "fit", "risks",
+                "unverified", "tasks", "task_areas"}
+VERDICTS = ("能用", "有條件才能用", "不建議用")
+
+
+def _zh_list(v, lo: int, hi: int, min_len: int, max_len: int) -> bool:
+    return (isinstance(v, list) and lo <= len(v) <= hi
+            and all(isinstance(x, str) and min_len <= len(x) <= max_len and CJK.search(x) for x in v))
 # Repo-relative paths the summary was written from; rendered as links back to the original files.
 SOURCE_RE = re.compile(r"^(?!/)(?!.*(?:^|/)\.\.(?:/|$))[A-Za-z0-9._/-]{1,200}$")
 SVG_MAX_BYTES = 2 * 1024 * 1024
@@ -101,6 +109,19 @@ def validate_summary(text: str, categories: list[str]) -> list[str]:
     if not (isinstance(src, list) and 1 <= len(src) <= 6
             and all(isinstance(x, str) and SOURCE_RE.match(x) for x in src)):
         errors.append("sources: 1-6 repo-relative file paths (no leading /, no ..)")
+    if data.get("verdict") not in VERDICTS:
+        errors.append(f"verdict: must be one of {list(VERDICTS)}")
+    vr = data.get("verdict_reason")
+    if not (isinstance(vr, str) and 10 <= len(vr) <= 80 and CJK.search(vr)):
+        errors.append("verdict_reason: 10-80 chars of plain Traditional Chinese")
+    for key, lo, hi, mn, mx in (("capabilities", 1, 3, 10, 120), ("fit", 1, 2, 10, 150), ("risks", 1, 3, 6, 120),
+                                ("unverified", 0, 3, 6, 100), ("tasks", 2, 5, 4, 30)):
+        if not _zh_list(data.get(key), lo, hi, mn, mx):
+            errors.append(f"{key}: {lo}-{hi} Chinese lines of {mn}-{mx} chars")
+    areas = data.get("task_areas")
+    if not (isinstance(areas, list) and 1 <= len(areas) <= 3 and len(set(map(str, areas))) == len(areas)
+            and all(a in profile.area_names() for a in areas)):
+        errors.append(f"task_areas: 1-3 distinct names from {profile.area_names()}")
     return errors
 
 

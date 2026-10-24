@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import entry
+from extra_fields import EXTRA
 
 ANALYSIS = {
     "tagline": "測試用的一句白話副標",
@@ -10,6 +11,7 @@ ANALYSIS = {
     "summary": "這是一個用來測試的專案，說明寫得夠長才會通過驗證。", "category": "dev-tool", "tags": ["cli", "test"],
     "stack": ["Python"], "highlights": ["第一個值得借鏡的地方。", "第二個值得借鏡的地方。"],
     "purpose": "整理電腦裡亂掉的檔案", "scenarios": ["下載資料夾塞滿的時候"], "sources": ["README.md", "src/main.py"],
+    **EXTRA,
 }
 
 

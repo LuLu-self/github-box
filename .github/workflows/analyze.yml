@@ -219,8 +219,9 @@ jobs:
             --disallowedTools "Read(//proc/**)" "mcp__*")
           claude_run() { CLAUDE_CODE_OAUTH_TOKEN="$TOKEN" claude "$@" "${FLAGS[@]}" < /dev/null; }
           start=$(date +%s)
+          PROF=""; [ -f "$GITHUB_WORKSPACE/profile.md" ] && PROF="$GITHUB_WORKSPACE/profile.md"
           PROMPT=$(python3 "$S/prompt.py" analyze --full "$FULL" --target "$TARGET" --out "$OUT" \
-            --skill "$AB/skills/arch-blueprint/SKILL.md" --taxonomy "$TAX")
+            --skill "$AB/skills/arch-blueprint/SKILL.md" --taxonomy "$TAX" --meta "$STAGE/meta.json" --profile "$PROF")
           claude_run -p "$PROMPT" --max-turns 80 > "$RUNNER_TEMP/stream-0.jsonl"
           rc=$?
           python3 "$S/claude_stream.py" "$RUNNER_TEMP"/stream-*.jsonl "$STAGE/run.json"

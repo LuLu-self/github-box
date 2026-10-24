@@ -134,6 +134,9 @@
     }
     .q { flex: 1; min-width: 0; max-width: 320px; margin-left: auto; padding: 5px 10px; font: inherit; font-size: 14px; color: inherit;
          border: 1.5px solid var(--line); border-radius: 8px; background: var(--field); }
+    #add { flex-wrap: wrap; }
+    .owned { flex-basis: 100%; display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--mute); }
+    #add .owned input { all: revert; min-height: 0; width: 16px; height: 16px; margin: 0; flex: none; accent-color: var(--link); }
     .stats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
     .stats:empty { display: none; }
     .stats span { border: 1.5px solid var(--line); border-radius: 8px; padding: 2px 10px; font-size: 13px; background: var(--sheet); white-space: nowrap; }
@@ -157,8 +160,9 @@
     </header>
 
     <form id="add">
-      <input id="add-url" placeholder="貼上 GitHub 連結" autocomplete="off" inputmode="url" aria-label="GitHub 連結">
+      <input id="add-url" placeholder="貼上 GitHub 連結，可貼多個" autocomplete="off" inputmode="url" aria-label="GitHub 連結">
       <button class="btn primary" type="submit">收藏</button>
+      <label class="owned"><input id="owned" type="checkbox"> 這些我原本就裝了（標成「在用」）</label>
     </form>
     <div id="block" class="status" data-state="idle" aria-live="polite">
       <span id="status"></span><span id="block-repo"></span><span id="hint">iPhone：在 Threads 按分享 › 捷徑「收進 GitHub Box」。</span>
@@ -168,7 +172,7 @@
     <section class="lib">
       <div class="lib-head">
         <h2>書庫</h2>
-        <input id="q" class="q" type="search" placeholder="搜尋用途、情境、標籤" autocomplete="off" aria-label="搜尋收藏">
+        <input id="q" class="q" type="search" placeholder="搜尋任務、用途、標籤" autocomplete="off" aria-label="搜尋收藏">
         <a id="library" href="#" target="_blank" rel="noopener">GitHub ↗</a>
       </div>
       <div id="stats" class="stats" aria-label="收藏總覽"></div>

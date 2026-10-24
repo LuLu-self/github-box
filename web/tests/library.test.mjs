@@ -268,10 +268,10 @@ test('removeEntry leaves the README count alone when index.json has no entries a
 import { stateItem, matches, saveStateItem, loadState } from '../lib/library.mjs';
 
 test('stateItem defaults and ignores junk', () => {
-  assert.deepEqual(stateItem({}, 'a__b'), { tried: '未試', install: false });
-  assert.deepEqual(stateItem({ a__b: { tried: '在用', install: true } }, 'a__b'), { tried: '在用', install: true });
-  assert.deepEqual(stateItem({ a__b: { tried: 'hack', install: 'yes' } }, 'a__b'), { tried: '未試', install: false });
-  assert.deepEqual(stateItem(null, '__proto__'), { tried: '未試', install: false });
+  assert.deepEqual(stateItem({}, 'a__b'), { tried: '未試', install: false, owned: false });
+  assert.deepEqual(stateItem({ a__b: { tried: '在用', install: true, owned: true } }, 'a__b'), { tried: '在用', install: true, owned: true });
+  assert.deepEqual(stateItem({ a__b: { tried: 'hack', install: 'yes' } }, 'a__b'), { tried: '未試', install: false, owned: false });
+  assert.deepEqual(stateItem(null, '__proto__'), { tried: '未試', install: false, owned: false });
 });
 
 test('matches searches purpose, scenarios and tags with every word', () => {
@@ -302,7 +302,7 @@ test('saveStateItem creates state.json and keeps other entries', async () => {
   const gh = fakeGitHub(JSON.stringify({ v: 1, items: { x__y: { tried: '放棄', install: false } } }));
   const cfg = { repo: 'me/lib', token: 't' };
   const out = await saveStateItem(cfg, 'a__b', { tried: '試過' }, 'a/b', gh.fetchImpl);
-  assert.deepEqual(out, { tried: '試過', install: false });
+  assert.deepEqual(out, { tried: '試過', install: false, owned: false });
   const data = gh.read();
   assert.equal(data.items.x__y.tried, '放棄');
   assert.equal(data.items.a__b.tried, '試過');
@@ -314,10 +314,28 @@ test('saveStateItem creates state.json and keeps other entries', async () => {
 test('saveStateItem works when state.json does not exist yet', async () => {
   const gh = fakeGitHub(null);
   const out = await saveStateItem({ repo: 'me/lib', token: 't' }, 'a__b', { install: true }, 'a/b', gh.fetchImpl);
-  assert.deepEqual(out, { tried: '未試', install: true });
+  assert.deepEqual(out, { tried: '未試', install: true, owned: false });
   assert.equal(gh.read().items.a__b.install, true);
 });
 
 test('saveStateItem rejects a bad stem', async () => {
   await assert.rejects(saveStateItem({ repo: 'me/lib', token: 't' }, '../x', { install: true }, 'x', async () => { throw new Error('no'); }));
+});
+
+import { health, mergeLibrary as merge2 } from '../lib/library.mjs';
+
+test('health flags archived before stale', () => {
+  assert.equal(health(null), '');
+  assert.equal(health({ stale: true }), '半年未更新');
+  assert.equal(health({ stale: true, archived: true }), '已封存');
+});
+
+test('mergeLibrary carries verdict, tasks and owned; search finds tasks', () => {
+  const idx = { entries: [{ repo: 'o/r', md: 'library/o__r.md', verdict: '能用', tasks: ['畫系統架構圖'], task_areas: ['圖表與視覺化'], activity: { stale: true } },
+    { repo: 'o/x', md: 'library/o__x.md', verdict: 'hack' }] };
+  const [a, b] = merge2(idx, [], 'me/lib', { o__r: { owned: true, tried: '在用' } });
+  assert.equal(a.verdict, '能用'); assert.equal(a.health, '半年未更新'); assert.ok(a.owned);
+  assert.equal(b.verdict, '');
+  assert.ok(matches(a, '架構圖'));
+  assert.ok(matches(a, '視覺化'));
 });

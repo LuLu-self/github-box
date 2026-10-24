@@ -189,6 +189,23 @@ def _run_record(leg: Leg) -> dict:
     }
 
 
+def _seed_state(repo: Path, stems: set, now: str) -> None:
+    """Entries captured as 'I already have this installed' start as 在用; never overwrites the owner's own marks."""
+    path = repo / "state.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"v": 1, "items": {}}
+    except (OSError, ValueError, UnicodeDecodeError):
+        return
+    items = data.get("items") if isinstance(data, dict) else None
+    if not isinstance(items, dict):
+        return
+    added = [s for s in sorted(stems) if s not in items]
+    for stem in added:
+        items[stem] = {"tried": "在用", "install": False, "owned": True, "updated_at": now}
+    if added:
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def _publish_group(repo: Path, legs: list[Leg], now: str) -> Leg:
     winner = min(legs, key=lambda l: (RANK[(l.status, l.svg is not None)], l.id))
     meta = winner.meta
@@ -213,6 +230,8 @@ def _publish_group(repo: Path, legs: list[Leg], now: str) -> Leg:
         auto = entry.read_auto(target)
         text = entry.render_entry(fm, None, None, user, auto=auto if auto is not None else "\n")
     entry.write_entry_files(target, fm, text)
+    if any(l.from_inbox and l.capture and l.capture.get("preset") == "installed" for l in legs):
+        _seed_state(repo, {target.stem}, now)
     return winner
 
 
@@ -291,7 +310,7 @@ def _git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProc
 
 
 def commit(repo: Path, counts: dict) -> bool:
-    paths = [p for p in ("library", "inbox", "README.md", "index.json", "taxonomy.yml") if (repo / p).exists()]
+    paths = [p for p in ("library", "inbox", "README.md", "index.json", "taxonomy.yml", "state.json") if (repo / p).exists()]
     if paths:
         _git(repo, "add", "-A", "--", *paths)
     if _git(repo, "diff", "--cached", "--quiet", check=False).returncode == 0:

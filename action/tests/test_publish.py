@@ -64,6 +64,37 @@ class PublishTest(unittest.TestCase):
 
     # --- ok / dedup / failed -------------------------------------------------
 
+    def test_preset_installed_seeds_state_once(self):
+        self.inbox("20261018-1", capture(preset="installed"))
+        self.leg("20261018-1")
+        self.run_publish()
+        state = json.loads((self.repo / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["items"]["owner__repo"]["tried"], "在用")
+        self.assertTrue(state["items"]["owner__repo"]["owned"])
+
+    def test_preset_never_overwrites_owner_marks(self):
+        (self.repo / "state.json").write_text(json.dumps({"v": 1, "items": {"owner__repo": {"tried": "放棄"}}}), encoding="utf-8")
+        self.inbox("20261018-1", capture(preset="installed"))
+        self.leg("20261018-1")
+        self.run_publish()
+        state = json.loads((self.repo / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["items"]["owner__repo"], {"tried": "放棄"})
+
+    def test_plain_capture_leaves_state_alone(self):
+        self.inbox("20261018-1", capture())
+        self.leg("20261018-1")
+        self.run_publish()
+        self.assertFalse((self.repo / "state.json").exists())
+
+    def test_readme_groups_by_task_area(self):
+        self.inbox("20261018-1", capture())
+        self.leg("20261018-1")
+        self.run_publish()
+        readme = (self.repo / "README.md").read_text(encoding="utf-8")
+        self.assertIn("## 依任務找", readme)
+        self.assertIn("### 開發與自動化", readme)
+        self.assertIn("· 有條件才能用", readme)
+
     def test_ok_writes_md_svg_and_moves_to_done(self):
         self.inbox("20261018-1", capture())
         self.leg("20261018-1")

@@ -156,9 +156,18 @@ const time = (iso) => { const t = Date.parse(iso); return Number.isNaN(t) ? 0 : 
 export const TRIED = ['未試', '試過', '在用', '放棄'];
 const strs = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
 
+export const VERDICTS = ['能用', '有條件才能用', '不建議用'];
+
+// From the API facts the pipeline stored: '' when healthy or unknown.
+export function health(activity) {
+  if (!activity || typeof activity !== 'object') return '';
+  if (activity.archived === true) return '已封存';
+  return activity.stale === true ? '半年未更新' : '';
+}
+
 export function stateItem(state, stem) {
   const it = state && typeof state === 'object' && Object.hasOwn(state, stem) ? state[stem] : null;
-  return { tried: it && TRIED.includes(it.tried) ? it.tried : '未試', install: Boolean(it && it.install === true) };
+  return { tried: it && TRIED.includes(it.tried) ? it.tried : '未試', install: Boolean(it && it.install === true), owned: Boolean(it && it.owned === true) };
 }
 
 function b64decodeUtf8(b64) {
@@ -202,7 +211,7 @@ export async function saveStateItem(cfg, stem, patch, repoName, fetchImpl = fetc
     const res = await fetchImpl(`${API}/${cfg.repo}/contents/state.json`, {
       method: 'PUT', cache: 'no-cache', headers: { ...headers(cfg, 'application/vnd.github+json'), 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
-    if (res.ok) return { tried: next.tried, install: next.install === true };
+    if (res.ok) return { tried: next.tried, install: next.install === true, owned: next.owned === true };
     if (res.status !== 409 && res.status !== 422) throw new RemoveError(res.status);
   }
   throw new RemoveError(409);
@@ -234,7 +243,8 @@ export async function listZips(cfg, stem, fetchImpl = fetch) {
 export function matches(item, query) {
   const q = String(query || '').trim().toLowerCase();
   if (!q) return true;
-  const hay = [item.repo, item.tagline, item.purpose, item.intro, ...(item.scenarios || []), ...(item.tags || [])].join(' ').toLowerCase();
+  const hay = [item.repo, item.tagline, item.purpose, item.intro, item.verdict, ...(item.scenarios || []), ...(item.tags || []),
+    ...(item.tasks || []), ...(item.task_areas || [])].join(' ').toLowerCase();
   return q.split(/\s+/).every((w) => hay.includes(w));
 }
 
@@ -244,7 +254,8 @@ export function mergeLibrary(index, history, lib, state = {}) {
     .filter((e) => e && typeof e === 'object' && typeof e.repo === 'string' && typeof e.md === 'string')
     .map((e) => ({ kind: 'entry', stem: stemOf(e.md), repo: e.repo, tagline: str(e.tagline), intro: str(e.intro), category: str(e.category),
       requirements: strs(e.requirements), last_seen: str(e.last_seen), purpose: str(e.purpose), scenarios: strs(e.scenarios), tags: strs(e.tags),
-      installable: Boolean(e.installable && typeof e.installable === 'object' && e.installable.kind), ...stateItem(state, stemOf(e.md)) }))
+      installable: Boolean(e.installable && typeof e.installable === 'object' && e.installable.kind), ...stateItem(state, stemOf(e.md)),
+      verdict: VERDICTS.includes(e.verdict) ? e.verdict : '', tasks: strs(e.tasks), task_areas: strs(e.task_areas), health: health(e.activity) }))
     .filter((e) => e.stem && e.repo)
     .sort((a, b) => time(b.last_seen) - time(a.last_seen));
   const known = new Set(entries.map((e) => e.repo.toLowerCase()));

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from _path import SCRIPTS  # noqa: F401
 import entry
+from extra_fields import EXTRA
 
 META = {
     "id": 42, "full_name": "Owner/Repo", "html_url": "https://github.com/Owner/Repo",
@@ -18,6 +19,7 @@ ANALYSIS = {
     "summary": "這是一個工具，用來測試條目產生是否正確。", "category": "dev-tool", "tags": ["cli"],
     "stack": ["Python", "C#"], "highlights": ["第一個值得借鏡的地方。", "第二個值得借鏡的地方。"],
     "purpose": "整理電腦裡亂掉的檔案", "scenarios": ["下載資料夾塞滿的時候"], "sources": ["README.md", "src/main.py"],
+    **EXTRA,
 }
 RUN = {"model": "claude-opus-5-5", "turns": 3, "wall_s": 60, "rounds": 0, "deepwiki": False, "diagram": True}
 END_ENCODINGS = [
@@ -73,6 +75,20 @@ class EntryTest(unittest.TestCase):
         self.assertIn("## 原始出處", text)
         self.assertIn("- [src/main.py](https://github.com/Owner/Repo/blob/HEAD/src/main.py)", text)
         self.assertLess(text.index("## 用途"), text.index("## 這是什麼"))
+
+    def test_verdict_first_and_inference_labelled(self):
+        text = entry.render_entry(self.fm, ANALYSIS, None, None)
+        self.assertLess(text.index("## 能不能用：有條件才能用"), text.index("## 用途"))
+        self.assertIn("## 對你的應用場景（推論）", text)
+        self.assertIn("任務類型：開發與自動化、個人效率", text)
+        self.assertNotIn("## 待查證", entry.render_entry(self.fm, dict(ANALYSIS, unverified=[]), None, None))
+
+    def test_activity_from_meta(self):
+        fm = entry.build_frontmatter(dict(META, pushed_at="2026-01-01T00:00:00Z", archived=True), ANALYSIS, [], None, None,
+                                     now="2026-10-18T00:00:00+00:00")
+        self.assertEqual(fm["activity"]["days_since_push"], 290)
+        self.assertTrue(fm["activity"]["stale"])
+        self.assertTrue(fm["activity"]["archived"])
 
     def test_sighting_keeps_only_https_page(self):
         cap = {"captured_at": "2026-10-18T10:00:00+08:00", "page_url": "https://www.threads.com/@a/post/1"}
@@ -130,8 +146,9 @@ class EntryTest(unittest.TestCase):
     def test_frontmatter_key_order_and_license_none(self):
         self.assertEqual(list(self.fm), [
             "repo", "repo_id", "url", "description", "language", "stars", "stars_at", "license", "category",
-            "tags", "stack", "tagline", "intro", "examples", "requirements", "summary", "highlights", "purpose",
-            "scenarios", "sources", "installable", "sightings", "analyzed_at", "analysis",
+            "tags", "stack", "task_areas", "tagline", "intro", "examples", "requirements", "summary", "highlights", "purpose",
+            "scenarios", "verdict", "verdict_reason", "capabilities", "fit", "risks", "unverified", "tasks",
+            "sources", "installable", "activity", "sightings", "analyzed_at", "analysis",
         ])
         self.assertEqual(self.fm["stars_at"], "2026-10-18")
         self.assertIsNone(self.fm["license"])
