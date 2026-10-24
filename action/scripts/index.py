@@ -18,7 +18,7 @@ RECENT_N = 10
 UNCATEGORIZED = "未分類"
 INDEX_FIELDS = ("repo", "repo_id", "url", "description", "tagline", "intro", "requirements", "language", "stars", "license", "category",
                 "tags", "stack", "analyzed_at", "purpose", "scenarios", "installable", "verdict", "verdict_reason",
-                "tasks", "task_areas", "activity")
+                "tasks", "task_areas", "activity", "when_to_use", "how_to_use")
 RELATED_N = 3
 RELATED_MIN = 2.0
 

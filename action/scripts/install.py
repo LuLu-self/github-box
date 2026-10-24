@@ -6,6 +6,7 @@ Writes, and owns, only these library paths:
   .claude-plugin/marketplace.json  Claude Code plugin marketplace (/plugin marketplace add <owner/repo>)
   plugins/github-box/              this box's own skill as a plugin, so Claude can search and add to the library
   dist/                            skill zips to upload in Claude Chat / Cowork (Settings > Capabilities > Skills)
+  dist/installs.json               per-entry build result the dashboard shows (ready / partial / problem)
   INSTALL.md                       what is installed and how to finish the steps that cannot be automated
 
 Third-party repos are cloned without symlinks and only zipped, never executed. Plugins are pinned to the
@@ -32,7 +33,7 @@ FULL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$")
 TRIED = ("未試", "試過", "在用", "放棄")
 MARKETPLACE = "github-box"
 SELF = "github-box"
-ZIP_MAX = 5 * 1024 * 1024
+ZIP_MAX = 25 * 1024 * 1024
 OWNED = (".claude-plugin", "plugins/github-box", "dist", "INSTALL.md")
 
 
@@ -135,6 +136,75 @@ def write_self(repo: Path, src: Path, library: str, pages: str) -> None:
     zip_dir(root / "skills" / SELF, repo / "dist" / f"{SELF}.zip", SELF)
 
 
+def _root_plugins(src: Path) -> list[str]:
+    """Plugin names a marketplace repo serves from its own root ("./"), which we can re-list by GitHub source."""
+    try:
+        data = json.loads((src / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError):
+        return []
+    out = []
+    for p in data.get("plugins") or [] if isinstance(data, dict) else []:
+        if isinstance(p, dict) and p.get("source") in ("./", ".", "") and isinstance(p.get("name"), str):
+            out.append(p["name"])
+    return out
+
+
+def _skill_dirs(src: Path, inst: dict) -> list[str]:
+    if inst["kind"] == "skill":
+        return inst["skills"]
+    return [p.parent.relative_to(src).as_posix() for p in sorted(src.rglob("SKILL.md"))
+            if "node_modules" not in p.parts and len(p.relative_to(src).parts) < 12][:detect.MAX_SKILLS]
+
+
+def _build_one(repo: Path, stem: str, e: dict, inst: dict, pin: str | None, taken: set) -> tuple[dict, dict | None]:
+    """Returns (row for INSTALL.md / installs.json, marketplace plugin entry or None)."""
+    row = {"repo": e["repo"], "kind": inst["kind"], "name": None, "sha": None, "skills": [], "zips": [],
+           "code_cmd": None, "market_cmd": None, "problems": []}
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "src"
+        sha = clone(e["repo"], src, pin)
+        if not sha:
+            row["problems"].append("下載原始碼失敗，下次重新按確認安裝再試")
+            return row, None
+        row["sha"] = sha
+        for d in _skill_dirs(src, inst):
+            sd = (src / d).resolve()
+            if not (sd / "SKILL.md").is_file() or not sd.is_relative_to(src.resolve()):
+                continue
+            sname = skill_name(sd, plugin_name(e["repo"], set()))
+            row["skills"].append(sname)
+            out = repo / "dist" / stem / f"{sname}.zip"
+            if zip_dir(sd, out, sname):
+                row["zips"].append(out.relative_to(repo).as_posix())
+            else:
+                row["problems"].append(f"技能 {sname} 超過 {ZIP_MAX // (1024 * 1024)}MB，無法打包給 Chat／Cowork 上傳")
+        plugin = None
+        if inst["kind"] == "marketplace":
+            served = _root_plugins(src)
+            if served:
+                own = e["repo"].split("/")[0] + "/" + served[0]
+                name = plugin_name(own if re.match(r"^[a-z0-9-]{1,64}$", served[0]) else e["repo"], taken)
+                plugin = {"name": name, "source": {"source": "github", "repo": e["repo"], "sha": sha},
+                          "description": str(e.get("tagline") or e["repo"])[:120]}
+            else:
+                row["market_cmd"] = f"/plugin marketplace add {e['repo']}"
+        else:
+            name = plugin_name(e["repo"], taken)
+            plugin = {"name": name, "source": {"source": "github", "repo": e["repo"], "sha": sha},
+                      "description": str(e.get("tagline") or e["repo"])[:120]}
+            if inst["kind"] == "skill":
+                plugin.update(strict=False, skills=[f"./{d}" if d != "." else "./" for d in inst["skills"]])
+        if plugin:
+            row["name"] = plugin["name"]
+            row["code_cmd"] = f"/plugin install {plugin['name']}@{MARKETPLACE}"
+        return row, plugin
+
+
+def _status(row: dict) -> str:
+    usable = row["code_cmd"] or row["market_cmd"] or row["zips"]
+    return "problem" if not usable else ("partial" if row["problems"] else "ready")
+
+
 def run(repo: Path, library: str, pages: str, skill_src: Path, now: str | None = None) -> dict:
     now = now or datetime.now(timezone.utc).isoformat(timespec="seconds")
     state, entries = load_state(repo), load_entries(repo)
@@ -145,60 +215,43 @@ def run(repo: Path, library: str, pages: str, skill_src: Path, now: str | None =
     write_self(repo, skill_src, library, pages)
     owner = library.split("/", 1)[0]
     plugins = [{"name": SELF, "source": f"./plugins/{SELF}", "description": "查詢、收藏與管理我的 GitHub Box 收藏庫"}]
-    taken, rows, marketplaces, problems = {SELF}, [], [], []
+    taken, rows, results = {SELF}, [], {}
     for stem in sorted(state):
         if state[stem].get("install") is not True:
             continue
         e = entries.get(stem)
         inst = detect.check(e.get("installable")) if e else None
         if not e:
-            problems.append(f"{stem}：收藏庫裡找不到這筆")
-            continue
-        if not inst:
-            problems.append(f"{e['repo']}：不是 Claude 外掛或 skill，沒有可安裝的東西")
-            continue
-        with tempfile.TemporaryDirectory() as tmp:
-            sha = clone(e["repo"], Path(tmp) / "src", pins.get(e["repo"].lower()))
-            if not sha:
-                problems.append(f"{e['repo']}：clone 失敗，下次再試")
-                continue
-            name = plugin_name(e["repo"], taken)
-            zips = []
-            skill_dirs = inst["skills"] if inst["kind"] == "skill" else [
-                p.parent.relative_to(Path(tmp) / "src").as_posix()
-                for p in sorted((Path(tmp) / "src").rglob("SKILL.md"))
-                if "node_modules" not in p.parts and len(p.parts) < 12][:detect.MAX_SKILLS]
-            for d in skill_dirs:
-                sd = (Path(tmp) / "src" / d).resolve()
-                if not (sd / "SKILL.md").is_file() or not sd.is_relative_to((Path(tmp) / "src").resolve()):
-                    continue
-                sname = skill_name(sd, name)
-                out = repo / "dist" / stem / f"{sname}.zip"
-                if zip_dir(sd, out, sname):
-                    zips.append(out.relative_to(repo).as_posix())
-            if inst["kind"] == "marketplace":
-                marketplaces.append(e["repo"])
-            else:
-                p = {"name": name, "source": {"source": "github", "repo": e["repo"], "sha": sha},
-                     "description": str(e.get("tagline") or e["repo"])[:120]}
-                if inst["kind"] == "skill":
-                    p.update(strict=False, skills=[f"./{d}" if d != "." else "./" for d in inst["skills"]])
-                plugins.append(p)
-            rows.append({"repo": e["repo"], "kind": inst["kind"], "name": name, "sha": sha[:7], "zips": zips})
+            row = {"repo": stem, "kind": None, "name": None, "sha": None, "skills": [], "zips": [], "code_cmd": None,
+                   "market_cmd": None, "problems": ["收藏庫裡找不到這筆"]}
+        elif not inst:
+            row = {"repo": e["repo"], "kind": None, "name": None, "sha": None, "skills": [], "zips": [], "code_cmd": None,
+                   "market_cmd": None, "problems": ["這個 repo 不是 Claude 外掛或 skill，沒有可以裝進 Claude 的東西"]}
+        else:
+            row, plugin = _build_one(repo, stem, e, inst, pins.get(e["repo"].lower()), taken)
+            if plugin:
+                plugins.append(plugin)
+        rows.append(row)
+        results[stem] = {**row, "sha": (row["sha"] or "")[:7] or None, "status": _status(row),
+                         "requested_at": str(state[stem].get("updated_at") or ""), "built_at": now}
     (repo / ".claude-plugin").mkdir(parents=True, exist_ok=True)
     (repo / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
         {"name": MARKETPLACE, "owner": {"name": owner}, "plugins": plugins}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    (repo / "INSTALL.md").write_text(render_install(library, pages, rows, marketplaces, problems, now), encoding="utf-8")
-    return {"installed": len(rows), "problems": problems}
+    (repo / "dist").mkdir(parents=True, exist_ok=True)
+    (repo / "dist" / "installs.json").write_text(json.dumps({"v": 1, "built_at": now, "items": results},
+                                                            ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (repo / "INSTALL.md").write_text(render_install(library, pages, rows, now), encoding="utf-8")
+    return {"installed": sum(1 for r in results.values() if r["status"] != "problem"),
+            "problems": [f"{r['repo']}：{p}" for r in rows for p in r["problems"]]}
 
 
-def render_install(library: str, pages: str, rows: list, marketplaces: list, problems: list, now: str) -> str:
+def render_install(library: str, pages: str, rows: list, now: str) -> str:
     L = [
         "# 安裝清單", "",
         f"由 GitHub Box 自動產生 · 更新 {now[:10]}。在看板（{pages}）按「確認安裝」後會自動重建這份清單。", "",
         "## Claude Code（只要設定一次）", "",
         "```", f"/plugin marketplace add {library}", f"/plugin install {SELF}@{MARKETPLACE}", "```", "",
-        "之後有新的確認安裝時，執行 `/plugin marketplace update " + MARKETPLACE + "`，再 `/plugin install <名稱>@" + MARKETPLACE + "`。", "",
+        "之後有新的確認安裝時，執行 `/plugin marketplace update " + MARKETPLACE + "`，再執行下面各項的安裝指令。", "",
         "## Claude Chat 與 Cowork", "",
         "到 claude.ai › 設定 › Capabilities › Skills 上傳下面的 zip。在看板的條目頁也能直接下載。", "",
         f"- `dist/{SELF}.zip`：GitHub Box 本身（讓 Claude 查你的收藏、幫你收新連結）", "",
@@ -212,12 +265,14 @@ def render_install(library: str, pages: str, rows: list, marketplaces: list, pro
     if not rows:
         L.append("（還沒有）")
     for r in rows:
-        L.append(f"- **{r['repo']}**（{r['kind']} · `{r['sha']}`）→ Claude Code：`/plugin install {r['name']}@{MARKETPLACE}`")
-        L += [f"  - Chat／Cowork：`{z}`" for z in r["zips"]]
-    for m in marketplaces:
-        L.append(f"- **{m}** 自己就是套件市集 → Claude Code：`/plugin marketplace add {m}`")
-    if problems:
-        L += ["", "## 沒裝成的", "", *[f"- {p}" for p in problems]]
+        head = f"- **{r['repo']}**" + (f"（{r['kind']} · `{(r['sha'] or '')[:7]}`）" if r["sha"] else "")
+        L.append(head)
+        if r["code_cmd"]:
+            L.append(f"  - Claude Code：`{r['code_cmd']}`")
+        if r["market_cmd"]:
+            L.append(f"  - Claude Code：它自己就是套件市集，執行 `{r['market_cmd']}` 後用 `/plugin` 選要裝的")
+        L += [f"  - Chat／Cowork：上傳 `{z}`" for z in r["zips"]]
+        L += [f"  - ⚠️ {p}" for p in r["problems"]]
     return "\n".join(L) + "\n"
 
 

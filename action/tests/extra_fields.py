@@ -20,5 +20,19 @@ EXTRA = {
     "task_areas": [
         "開發與自動化",
         "個人效率"
+    ],
+    "when_to_use": [
+        "寫完規格要給研發看之前"
+    ],
+    "how_to_use": [
+        "在 Claude Code 輸入 /tool 加上描述"
+    ],
+    "diagram_note": "使用者輸入指令後，由核心模組處理，再輸出成檔案給使用者。",
+    "diagram_nodes": [
+        {
+            "label": "Core",
+            "zh": "核心",
+            "role": "處理使用者的指令"
+        }
     ]
 }

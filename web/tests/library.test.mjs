@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { parseStem, stemOf, mergeLibrary, specRows, ghRaw, loadIndex, STATE_TEXT } from '../lib/library.mjs';
 
 const CFG = { repo: 'me/lib', token: 'tok' };
+const pick = (m) => ({ tried: m.tried, install: m.install, owned: m.owned });
 const fakeFetch = (routes) => async (url, opts) => {
   fakeFetch.calls.push({ url, opts });
   const r = routes[url.replace('https://api.github.com/repos/me/lib', '')];
@@ -268,10 +269,10 @@ test('removeEntry leaves the README count alone when index.json has no entries a
 import { stateItem, matches, saveStateItem, loadState } from '../lib/library.mjs';
 
 test('stateItem defaults and ignores junk', () => {
-  assert.deepEqual(stateItem({}, 'a__b'), { tried: '未試', install: false, owned: false });
-  assert.deepEqual(stateItem({ a__b: { tried: '在用', install: true, owned: true } }, 'a__b'), { tried: '在用', install: true, owned: true });
-  assert.deepEqual(stateItem({ a__b: { tried: 'hack', install: 'yes' } }, 'a__b'), { tried: '未試', install: false, owned: false });
-  assert.deepEqual(stateItem(null, '__proto__'), { tried: '未試', install: false, owned: false });
+  assert.deepEqual(pick(stateItem({}, 'a__b')), { tried: '未試', install: false, owned: false });
+  assert.deepEqual(pick(stateItem({ a__b: { tried: '在用', install: true, owned: true } }, 'a__b')), { tried: '在用', install: true, owned: true });
+  assert.deepEqual(pick(stateItem({ a__b: { tried: 'hack', install: 'yes' } }, 'a__b')), { tried: '未試', install: false, owned: false });
+  assert.deepEqual(pick(stateItem(null, '__proto__')), { tried: '未試', install: false, owned: false });
 });
 
 test('matches searches purpose, scenarios and tags with every word', () => {
@@ -302,7 +303,7 @@ test('saveStateItem creates state.json and keeps other entries', async () => {
   const gh = fakeGitHub(JSON.stringify({ v: 1, items: { x__y: { tried: '放棄', install: false } } }));
   const cfg = { repo: 'me/lib', token: 't' };
   const out = await saveStateItem(cfg, 'a__b', { tried: '試過' }, 'a/b', gh.fetchImpl);
-  assert.deepEqual(out, { tried: '試過', install: false, owned: false });
+  assert.deepEqual(pick(out), { tried: '試過', install: false, owned: false });
   const data = gh.read();
   assert.equal(data.items.x__y.tried, '放棄');
   assert.equal(data.items.a__b.tried, '試過');
@@ -314,7 +315,7 @@ test('saveStateItem creates state.json and keeps other entries', async () => {
 test('saveStateItem works when state.json does not exist yet', async () => {
   const gh = fakeGitHub(null);
   const out = await saveStateItem({ repo: 'me/lib', token: 't' }, 'a__b', { install: true }, 'a/b', gh.fetchImpl);
-  assert.deepEqual(out, { tried: '未試', install: true, owned: false });
+  assert.deepEqual(pick(out), { tried: '未試', install: true, owned: false });
   assert.equal(gh.read().items.a__b.install, true);
 });
 
@@ -338,4 +339,20 @@ test('mergeLibrary carries verdict, tasks and owned; search finds tasks', () => 
   assert.equal(b.verdict, '');
   assert.ok(matches(a, '架構圖'));
   assert.ok(matches(a, '視覺化'));
+});
+
+import { installPhase } from '../lib/library.mjs';
+
+test('stateItem reads per-surface confirmations', () => {
+  const m = stateItem({ a__b: { installed: { code: true, chat: 'yes' } } }, 'a__b');
+  assert.deepEqual(m.installed, { code: true, chat: false, cowork: false });
+});
+
+test('installPhase waits for a build newer than the request', () => {
+  const mark = { install: true, updated_at: '2026-10-24T10:00:00Z' };
+  assert.equal(installPhase({ install: false }, null), 'off');
+  assert.equal(installPhase(mark, null), 'pending');
+  assert.equal(installPhase(mark, { status: 'ready', requested_at: '2026-10-24T09:00:00Z' }), 'pending');
+  assert.equal(installPhase(mark, { status: 'ready', requested_at: '2026-10-24T10:00:00Z' }), 'ready');
+  assert.equal(installPhase(mark, { status: 'problem', requested_at: '2026-10-24T10:00:00Z' }), 'problem');
 });

@@ -1,7 +1,7 @@
 'use strict';
 
 import { prepareSvg, rejectedNotice, wire, draft, mountLightbox } from './lib/diagram.mjs';
-import { parseStem, stemOf, ghRaw, ghBlob, listZips, loadIndex, loadState, saveStateItem, stateItem, removeEntry, specRows, categoryLabel, STATE_TEXT, TRIED, VERDICTS, health } from './lib/library.mjs';
+import { parseStem, stemOf, ghRaw, ghBlob, loadIndex, loadState, loadInstalls, installPhase, saveStateItem, stateItem, SURFACES, removeEntry, specRows, categoryLabel, STATE_TEXT, TRIED, VERDICTS, health } from './lib/library.mjs';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -80,60 +80,153 @@ function link(href, label) { const a = el('a', null, label); a.href = href; a.ta
 function ulOf(nodes) { const ul = el('ul', 'plain'); for (const n of nodes) { const li = el('li'); li.append(n); ul.append(li); } return ul; }
 
 // 我的標記: 是否已試過 and 確認安裝, saved to state.json; 確認安裝 only for repos that hold a Claude plugin or skill.
-function markSection(cfg, stem, rec, mark) {
+// One save path for 我的標記 and the install panel, so both repaint from the same mark.
+function marker(cfg, stem, repoName, mark) {
+  const listeners = [];
+  return {
+    mark,
+    on: (fn) => listeners.push(fn),
+    async save(patch, msgEl) {
+      if (msgEl) msgEl.textContent = '儲存中…';
+      try {
+        Object.assign(mark, await saveStateItem(cfg, stem, patch, repoName));
+        if (msgEl) msgEl.textContent = '已儲存。';
+      } catch (e) {
+        if (msgEl) msgEl.textContent = e.status === 403 ? '儲存失敗：token 沒有寫入權限。' : `儲存失敗（${e.status || '連線'}），稍後再試。`;
+      }
+      listeners.forEach((fn) => fn());
+    },
+  };
+}
+
+function markSection(m) {
   const box = el('div', 'marks');
   const msg = el('span', 'mmsg');
   const seg = el('div', 'tried'); seg.setAttribute('role', 'radiogroup'); seg.setAttribute('aria-label', '是否已試過');
-  const repoName = text(rec.repo) || stem;
-  const save = async (patch, btn) => {
-    box.querySelectorAll('button').forEach((b) => { b.disabled = true; });
-    msg.textContent = '儲存中…';
-    try {
-      Object.assign(mark, await saveStateItem(cfg, stem, patch, repoName));
-      msg.textContent = patch.install === true ? '已送出，約 1–3 分鐘後 INSTALL.md 與 zip 會更新。' : '已儲存。';
-    } catch (e) {
-      msg.textContent = e.status === 403 ? '儲存失敗：token 沒有寫入權限。' : `儲存失敗（${e.status || '連線'}），稍後再試。`;
-    }
-    paint();
-  };
-  const installable = rec.installable && typeof rec.installable === 'object' && rec.installable.kind;
-  const inst = el('button', 'inst'); inst.type = 'button';
+  const owned = el('p', 'mmsg');
   const paint = () => {
-    seg.querySelectorAll('button').forEach((b) => { b.disabled = false; b.setAttribute('aria-checked', String(b.textContent === mark.tried)); });
-    inst.disabled = !installable;
-    inst.textContent = !installable ? (mark.owned ? '原本就裝了（不是 Claude 外掛／skill）' : '不是 Claude 外掛／skill')
-      : mark.install ? '✓ 已確認安裝（按一下取消）' : mark.owned ? '原本就裝了 · 也加進 GitHub Box 安裝清單' : '確認安裝到 Claude';
-    inst.setAttribute('aria-pressed', String(mark.install));
+    seg.querySelectorAll('button').forEach((b) => { b.disabled = false; b.setAttribute('aria-checked', String(b.textContent === m.mark.tried)); });
+    box.dataset.tried = m.mark.tried;
+    owned.textContent = m.mark.owned ? '你標記為「原本就裝了」。' : '';
   };
   for (const t of TRIED) {
     const b = el('button', null, t); b.type = 'button'; b.setAttribute('role', 'radio');
-    b.onclick = () => { if (t !== mark.tried) save({ tried: t }, b); };
+    b.onclick = () => { if (t !== m.mark.tried) { seg.querySelectorAll('button').forEach((x) => { x.disabled = true; }); m.save({ tried: t }, msg); } };
     seg.append(b);
   }
-  inst.onclick = () => {
-    if (!mark.install && !confirm(`確認安裝 ${repoName}？\n會加進你的 Claude Code 套件清單，並打包給 Claude Chat／Cowork 上傳的 zip。第三方程式碼請先自己看過。`)) return;
-    save({ install: !mark.install }, inst);
-  };
+  m.on(paint);
   paint();
-  box.append(el('span', 'lbl', '是否已試過'), seg, inst, msg);
+  box.append(el('span', 'lbl', '是否已試過'), seg, owned, msg);
   return section('我的標記', box);
 }
 
-async function zipSection(cfg, stem) {
-  const zips = await listZips(cfg, stem);
-  if (!zips.length) return null;
-  const btns = zips.map((path) => {
-    const b = el('button', 'linkish', `下載 ${path.split('/').pop()}`); b.type = 'button';
-    b.onclick = async () => {
-      const r = await ghBlob(cfg, path);
-      if (!r.blob) { alert(`下載失敗（${r.status || '連線'}）`); return; }
-      const a = document.createElement('a'); a.href = URL.createObjectURL(r.blob); a.download = path.split('/').pop();
-      a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-    };
-    return b;
-  });
-  const p = el('p', 'note', '到 claude.ai › 設定 › Capabilities › Skills 上傳，Chat 與 Cowork 都能用。');
-  return section('給 Claude Chat／Cowork', ulOf(btns), p);
+function usageSection(rec) {
+  const when = list(rec.when_to_use), how = list(rec.how_to_use);
+  if (!when.length && !how.length) return null;
+  const kids = [];
+  if (when.length) kids.push(el('b', 'sublbl', '什麼時候用'), bullets(when));
+  if (how.length) kids.push(el('b', 'sublbl', '怎麼用'), bullets(how));
+  return section('什麼時候用、怎麼用', ...kids);
+}
+
+function copyRow(cmd) {
+  const row = el('div', 'cmd');
+  const b = el('button', 'copy', '複製'); b.type = 'button';
+  b.onclick = async () => {
+    try { await navigator.clipboard.writeText(cmd); b.textContent = '已複製'; } catch { b.textContent = '請長按選取'; }
+    setTimeout(() => { b.textContent = '複製'; }, 1500);
+  };
+  row.append(el('code', null, cmd), b);
+  return row;
+}
+
+function zipButton(cfg, path) {
+  const name = path.split('/').pop();
+  const b = el('button', 'linkish', `⬇ 下載 ${name}`); b.type = 'button';
+  b.onclick = async () => {
+    const r = await ghBlob(cfg, path);
+    if (!r.blob) { alert(`下載失敗（${r.status || '連線'}）`); return; }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(r.blob); a.download = name;
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  };
+  return b;
+}
+
+const PHASE_TEXT = {
+  pending: '⏳ 處理中：GitHub 正在打包，約 1–3 分鐘，這頁會自動更新。',
+  ready: '✅ 打包成功。GitHub Box 看不到你的 Claude 裡裝了什麼，請照下面三個地方各做一次，做完勾選。',
+  partial: '⚠️ 部分成功，請看下面的說明。',
+  problem: '❌ 沒有成功。',
+};
+
+// 確認安裝 → the install workflow builds the bundle → the owner finishes each surface and ticks it off.
+function installSection(cfg, stem, rec, m) {
+  const box = el('div', 'install');
+  const installable = rec.installable && typeof rec.installable === 'object' && rec.installable.kind;
+  const msg = el('span', 'mmsg');
+  let timer = null, polls = 0;
+  const render = async () => {
+    clearTimeout(timer);
+    const mark = m.mark;
+    if (!installable) {
+      box.replaceChildren(el('p', 'note', mark.owned ? '你標記為原本就裝了。這個 repo 不是 Claude 外掛或 skill，不用裝進 Claude。'
+        : '這個 repo 不是 Claude 外掛或 skill，沒有可以裝進 Claude 的東西。'));
+      return;
+    }
+    if (!mark.install) {
+      const b = el('button', 'inst', '確認安裝到 Claude'); b.type = 'button';
+      b.onclick = () => {
+        if (!confirm(`確認安裝 ${text(rec.repo)}？\n會加進你的 Claude Code 套件清單，並打包給 Claude Chat／Cowork 上傳的 zip。第三方程式碼請先自己看過。`)) return;
+        b.disabled = true; polls = 0; m.save({ install: true }, msg);
+      };
+      box.replaceChildren(b, msg);
+      return;
+    }
+    const result = (await loadInstalls(cfg))[stem];
+    const phase = installPhase(mark, result);
+    const kids = [el('p', `phase ${phase}`, PHASE_TEXT[phase])];
+    if (phase === 'pending') {
+      if (polls++ < 15) timer = setTimeout(render, 20000);
+      else kids.push(el('p', 'mmsg', '等太久了，可以到收藏庫的 Actions 看看 install 有沒有出錯。'));
+    } else {
+      for (const p of Array.isArray(result.problems) ? result.problems : []) kids.push(el('p', 'warnline', `⚠️ ${p}`));
+      const skills = list(result.skills);
+      if (skills.length) kids.push(el('p', 'mmsg', `安裝後的技能名稱：${skills.join('、')}`));
+      const zips = list(result.zips).filter((z) => /^dist\/[a-z0-9._-]+__[a-z0-9._-]+\/[A-Za-z0-9_-]{1,64}\.zip$/.test(z));
+      const done = mark.installed;
+      const surface = (key, title, body) => {
+        const s = el('div', 'surface'); s.dataset.done = String(done[key]);
+        const cb = el('input'); cb.type = 'checkbox'; cb.checked = done[key];
+        cb.onchange = () => { cb.disabled = true; m.save({ installed: { ...done, [key]: cb.checked }, ...(cb.checked ? { tried: '在用' } : {}) }, msg); };
+        const lab = el('label', 'done'); lab.append(cb, ` 我在 ${title} 裝好了`);
+        s.append(el('b', null, `${done[key] ? '✅' : '⬜'} ${title}`), ...body, lab);
+        return s;
+      };
+      const code = [];
+      if (typeof result.code_cmd === 'string' && result.code_cmd) {
+        code.push(el('p', 'mmsg', '第一次使用（之後不用再做）：'), copyRow(`/plugin marketplace add ${cfg.repo}`),
+          el('p', 'mmsg', '每次確認安裝後：'), copyRow('/plugin marketplace update github-box'), copyRow(result.code_cmd),
+          el('p', 'mmsg', '裝完重新開啟 Claude Code，輸入 /plugin 可以看到它。'));
+      } else if (typeof result.market_cmd === 'string' && result.market_cmd) {
+        code.push(el('p', 'mmsg', '它自己就是套件市集：'), copyRow(result.market_cmd), el('p', 'mmsg', '再輸入 /plugin 選要裝的項目。'));
+      } else code.push(el('p', 'mmsg', '這項沒有 Claude Code 版本。'));
+      const chat = zips.length ? [ulOf(zips.map((z) => zipButton(cfg, z))),
+        el('p', 'mmsg', '到 claude.ai › 設定 › Capabilities（功能）› Skills › 上傳技能，選這個 zip，再把它的開關打開。')]
+        : [el('p', 'mmsg', '這項沒有可以上傳的 skill zip。')];
+      const cowork = zips.length ? [el('p', 'mmsg', 'Cowork 用的是同一個 claude.ai 帳號的 Skills。Chat 上傳好之後，在 Cowork 開新任務，確認技能清單裡看得到它。')]
+        : [el('p', 'mmsg', '這項沒有可以上傳的 skill zip。')];
+      kids.push(surface('code', 'Claude Code', code), surface('chat', 'Claude Chat', chat), surface('cowork', 'Cowork', cowork));
+      const n = SURFACES.filter(([k]) => done[k]).map(([, t]) => t);
+      kids.push(el('p', 'summary', n.length ? `已安裝：${n.join('、')}（已自動標成「在用」）` : '還沒有在任何地方裝好。'));
+    }
+    const cancel = el('button', 'linkish', '取消確認安裝'); cancel.type = 'button';
+    cancel.onclick = () => { if (confirm('從 GitHub Box 的安裝清單移除？已經裝進 Claude 的要自己移除。')) m.save({ install: false }, msg); };
+    kids.push(cancel, msg);
+    box.replaceChildren(...kids);
+  };
+  m.on(render);
+  render();
+  return section('安裝到 Claude', box);
 }
 
 function sourceSection(rec) {
@@ -191,7 +284,7 @@ function tasksSection(rec) {
 }
 
 function renderText(rec, legacy, extras = []) {
-  const parts = [verdictSection(rec)].filter(Boolean);
+  const parts = [verdictSection(rec), usageSection(rec)].filter(Boolean);
   const intro = text(rec.intro), examples = list(rec.examples), reqs = list(rec.requirements);
   const purpose = text(rec.purpose), scenarios = list(rec.scenarios);
   if (purpose || scenarios.length) {
@@ -223,6 +316,29 @@ function renderText(rec, legacy, extras = []) {
   if (t) parts.push(t);
   if (legacy || (!intro && !t)) parts.push(el('p', 'note', '這筆是舊格式，重新分析後會有完整內容。'));
   $('col').replaceChildren(...parts, ...extras.filter(Boolean));
+}
+
+function renderGuide(rec) {
+  const note = text(rec.diagram_note);
+  const nodes = (Array.isArray(rec.diagram_nodes) ? rec.diagram_nodes : [])
+    .filter((n) => n && typeof n.label === 'string' && typeof n.zh === 'string' && typeof n.role === 'string');
+  if (!note && !nodes.length) {
+    $('guide').replaceChildren(el('p', 'note', '這筆還沒有架構圖說明，重新分析後會出現節點的中文翻譯與作用。'));
+    return;
+  }
+  const kids = [el('h2', null, '看懂架構圖')];
+  if (note) kids.push(el('p', 'gnote', note));
+  if (nodes.length) {
+    // Phones read top to bottom, so the node table folds away there to keep 能不能用 close.
+    const d = el('details', 'gnodes'); d.open = matchMedia('(min-width: 1000px)').matches;
+    d.append(el('summary', null, `節點中文翻譯（${nodes.length} 個）`));
+    kids.push(d);
+    const t = el('table', 'spec nodes'); const body = el('tbody'); t.append(body);
+    const head = el('tr'); head.append(el('th', null, '節點'), el('th', null, '中文'), el('th', null, '作用')); body.append(head);
+    for (const n of nodes) { const tr = el('tr'); tr.append(el('td', 'mono', n.label), el('td', null, n.zh), el('td', null, n.role)); body.append(tr); }
+    d.append(t);
+  }
+  $('guide').replaceChildren(...kids);
 }
 
 function renderDiagram(cfg, stem, svgRes) {
@@ -281,10 +397,12 @@ function renderRecord(cfg, stem, rec, svgRes, legacy, idx, mark) {
   $('tblock').hidden = false;
   $('read').hidden = false;
   document.title = `${repo} · GitHub Box`;
-  const extras = [markSection(cfg, stem, rec, mark), relatedSection(idx, stem), sourceSection(rec)];
+  const m = marker(cfg, stem, repo, mark);
+  const extras = [markSection(m), installSection(cfg, stem, rec, m), relatedSection(idx, stem), sourceSection(rec)];
   renderText(rec, legacy, extras);
   renderDiagram(cfg, stem, svgRes);
-  zipSection(cfg, stem).then((z) => { if (z && parseStem(location.hash) === stem) $('col').append(z); });
+  renderGuide(rec);
+
 }
 
 let generation = 0;

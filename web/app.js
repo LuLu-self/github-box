@@ -228,9 +228,10 @@ let libFilter = '';
 let libQuery = '';
 const PENDING = '__pending', FAILED = '__failed', TRIED_KEY = '__tried:', INSTALLED = '__installed', AREA_KEY = '__area:';
 
-function card(href, external, cls, title, repo, chips) {
+function card(href, external, cls, title, repo, chips, tried = '') {
   const a = document.createElement('a');
   a.className = cls ? `card ${cls}` : 'card';
+  if (tried) a.dataset.tried = tried;
   a.href = href;
   if (external) { a.target = '_blank'; a.rel = 'noopener'; }
   const tl = document.createElement('span'); tl.className = 'tl'; tl.textContent = title;
@@ -238,7 +239,7 @@ function card(href, external, cls, title, repo, chips) {
   a.append(tl, rp);
   if (chips.length) {
     const bd = document.createElement('span'); bd.className = 'bd';
-    for (const c of chips) { const s = document.createElement('span'); s.textContent = c; bd.append(s); }
+    for (const c of chips) { const s = document.createElement('span'); s.textContent = c; if (TRIED.includes(c)) s.className = 'mark'; bd.append(s); }
     a.append(bd);
   }
   return a;
@@ -312,9 +313,10 @@ function renderLibrary() {
   const gh = `https://github.com/${cfg.repo}`;
   const pendingCards = () => pending.map((it) => card(`${gh}/actions`, true, 'pending', it.repo, `分析中 · ${ago(it.at)}`, []));
   const failedCards = () => failed.map((it) => card(`${gh}/blob/main/inbox/failed/${it.id}.json`, true, 'failed', it.repo, `分析失敗 · ${ago(it.at)}`, []));
-  const chips = (it) => [...(it.verdict ? [it.verdict] : []), ...(it.health ? [it.health] : []), ...(it.tried !== '未試' ? [it.tried] : []),
-    ...(it.install ? ['已確認安裝'] : it.owned ? ['原本就裝了'] : []), ...badges(it.requirements)].slice(0, 4);
-  const entryCards = (list) => list.map((it) => card(`read.html#${it.stem}`, false, '', it.tagline || it.intro || it.repo, it.purpose ? `${it.repo} · ${it.purpose}` : it.repo, chips(it)));
+  const chips = (it) => [it.tried, ...(it.verdict ? [it.verdict] : []), ...(it.health ? [it.health] : []),
+    ...(it.install ? ['已確認安裝'] : it.owned ? ['原本就裝了'] : []), ...badges(it.requirements)].slice(0, 5);
+  const entryCards = (list) => list.map((it) => card(`read.html#${it.stem}`, false, '', it.tagline || it.intro || it.repo,
+    it.purpose ? `${it.repo} · ${it.purpose}` : it.repo, chips(it), it.tried));
   let cards;
   if (libFilter === PENDING) cards = pendingCards();
   else if (libFilter === FAILED) cards = failedCards();

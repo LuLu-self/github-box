@@ -83,6 +83,15 @@ class EntryTest(unittest.TestCase):
         self.assertIn("任務類型：開發與自動化、個人效率", text)
         self.assertNotIn("## 待查證", entry.render_entry(self.fm, dict(ANALYSIS, unverified=[]), None, None))
 
+    def test_diagram_guide_table_is_escaped(self):
+        hostile = dict(ANALYSIS, diagram_nodes=[{"label": "A|B", "zh": "核心[x](http://e)", "role": "處理 <b>指令</b>"}])
+        text = entry.render_entry(self.fm, hostile, None, None)
+        self.assertIn("## 看懂架構圖", text)
+        self.assertIn("| A\\|B |", text)
+        self.assertNotIn("](http://", text)
+        fm = entry.build_frontmatter(META, hostile, [], None, None, now="2026-10-18T00:00:00+00:00")
+        self.assertEqual(fm["diagram_nodes"][0]["role"], "處理 指令")
+
     def test_activity_from_meta(self):
         fm = entry.build_frontmatter(dict(META, pushed_at="2026-01-01T00:00:00Z", archived=True), ANALYSIS, [], None, None,
                                      now="2026-10-18T00:00:00+00:00")
@@ -148,7 +157,7 @@ class EntryTest(unittest.TestCase):
             "repo", "repo_id", "url", "description", "language", "stars", "stars_at", "license", "category",
             "tags", "stack", "task_areas", "tagline", "intro", "examples", "requirements", "summary", "highlights", "purpose",
             "scenarios", "verdict", "verdict_reason", "capabilities", "fit", "risks", "unverified", "tasks",
-            "sources", "installable", "activity", "sightings", "analyzed_at", "analysis",
+            "when_to_use", "how_to_use", "diagram_note", "diagram_nodes", "sources", "installable", "activity", "sightings", "analyzed_at", "analysis",
         ])
         self.assertEqual(self.fm["stars_at"], "2026-10-18")
         self.assertIsNone(self.fm["license"])

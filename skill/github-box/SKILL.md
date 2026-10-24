@@ -13,9 +13,10 @@ LuLu 的私人收藏庫是 GitHub repo `{{LIBRARY}}`，看板在 {{PAGES}}。
 
 | 路徑 | 內容 |
 |---|---|
-| `index.json` | 全部收藏。每筆有 `repo`、`url`、`tagline`、`purpose`、`scenarios`、`verdict`、`verdict_reason`、`tasks`（可用在哪些任務）、`task_areas`、`activity`（`pushed_at`、`stale`、`archived`）、`related`、`installable`、`md` |
+| `index.json` | 全部收藏。每筆有 `repo`、`url`、`tagline`、`purpose`、`scenarios`、`verdict`、`verdict_reason`、`tasks`（可用在哪些任務）、`task_areas`、`when_to_use`、`how_to_use`、`activity`（`pushed_at`、`stale`、`archived`）、`related`、`installable`、`md` |
 | `library/<stem>.md` | 單筆完整報告 |
-| `state.json` | LuLu 自己的標記：`{"v":1,"items":{"<stem>":{"tried":"未試|試過|在用|放棄","install":true|false,"owned":true|false,"updated_at":"ISO"}}}` |
+| `state.json` | LuLu 自己的標記：`{"v":1,"items":{"<stem>":{"tried":"未試|試過|在用|放棄","install":true|false,"owned":true|false,"installed":{"code":bool,"chat":bool,"cowork":bool},"updated_at":"ISO"}}}`。`installed` 是 LuLu 確認過真的裝好的地方 |
+| `dist/installs.json` | 安裝流程的結果：每筆的 `status`（ready／partial／problem）、`code_cmd`、`zips`、`skills`、`problems` |
 | `INSTALL.md` | 已確認安裝的項目與安裝指令 |
 
 `<stem>` 是 `library/` 底下的檔名去掉 `.md`，例如 `squirrelray__livesummary`。
@@ -27,7 +28,7 @@ LuLu 的私人收藏庫是 GitHub repo `{{LIBRARY}}`，看板在 {{PAGES}}。
 1. 讀 `index.json`（同一段對話讀過就不用再讀）。
 2. 用任務內容比對 `tasks`、`task_areas`、`purpose`、`scenarios`、`tags`。
 3. 篩掉 `verdict` 是「不建議用」的、`state.json` 標「放棄」的；`activity.archived` 為 true 的不推薦，`stale` 為 true 的要註明「半年未更新」。
-4. 有符合的就在開始前用 1–3 行說：「收藏裡有 X 可以用在這裡：（一句用途）。（能不能用＋理由）。要用它嗎？」標「在用」或「原本就裝了」的優先，可以直接拿來用。
+4. 有符合的就在開始前用 1–3 行說：「收藏裡有 X 可以用在這裡：（一句用途）。（能不能用＋理由）。要用它嗎？」標「在用」或「原本就裝了」的優先，可以直接拿來用；`installed` 顯示裝在目前這個環境（Claude Code／Chat／Cowork）的，就照 `how_to_use` 直接說怎麼叫用它。
 5. 沒有符合的就**什麼都不說**，直接開始任務。不要為了推薦而硬湊。
 6. 推薦完不用等回答才動工：先做任務中不依賴這個工具的部分，LuLu 說要用時再改用它。
 

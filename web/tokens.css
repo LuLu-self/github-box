@@ -7,6 +7,9 @@
   --sans: system-ui, -apple-system, "Noto Sans TC", "PingFang TC", sans-serif;
   --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, monospace;
   --gutter: max(16px, env(safe-area-inset-left));
+  /* 我的標記 colours: 試過 / 在用 / 放棄 (未試 stays neutral). */
+  --m-tried: #1f4fc4; --m-using: #17803d; --m-dropped: #8a94a6;
+  --m-tried-bg: #e6eeff; --m-using-bg: #e3f6ea; --m-dropped-bg: #eef0f4;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -14,5 +17,7 @@
     --ink: #eaf1ff; --mute: #a9bee3; --line: #cfdcf5;
     --cyan: #eaf1ff; --cyan-ink: #0e2f6b; --err: #ffab9e; --field: #0b2758cc;
     --sheet: #0b2758; --rule: #2a5598; --on-ink: #0e2f6b; --link: #9cc2ff;
+    --m-tried: #9cc2ff; --m-using: #7ee2a8; --m-dropped: #8fa0bf;
+    --m-tried-bg: #173f85; --m-using-bg: #12503a; --m-dropped-bg: #1b3463;
   }
 }

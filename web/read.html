@@ -113,6 +113,29 @@
     .verdict[data-v="不建議用"] b { color: var(--err); }
     .act { font-size: 12.5px; color: var(--mute); margin: 0 0 4px !important; }
     .act.warn { color: var(--err); font-weight: 600; }
+    .left { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+    .guide .gnote { margin: 0 0 8px; font-size: 14px; line-height: 1.7; }
+    .guide .nodes th { width: auto; border-right: 0; }
+    .guide .nodes td { vertical-align: top; font-size: 13px; }
+    .guide .nodes td.mono { font: 12px var(--mono); white-space: nowrap; }
+    .guide .nodes td:nth-child(2) { white-space: nowrap; }
+    .gnodes summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--link); margin-bottom: 6px; }
+    .marks[data-tried="試過"] .tried button[aria-checked="true"] { background: var(--m-tried); border-color: var(--m-tried); }
+    .marks[data-tried="在用"] .tried button[aria-checked="true"] { background: var(--m-using); }
+    .marks[data-tried="放棄"] .tried button[aria-checked="true"] { background: var(--m-dropped); }
+    .install { display: grid; gap: 8px; border: 2px solid var(--ink); background: var(--sheet); padding: 10px 12px; }
+    .install .phase { margin: 0; font-weight: 600; font-size: 14px; }
+    .install .phase.problem, .install .warnline { color: var(--err); }
+    .install .warnline { margin: 0; font-size: 13px; }
+    .surface { border: 1.5px solid var(--rule); padding: 8px 10px; display: grid; gap: 4px; }
+    .surface[data-done="true"] { border-color: var(--m-using); background: var(--m-using-bg); }
+    .surface > b { font-size: 14px; }
+    .surface .mmsg { margin: 0; }
+    .cmd { display: flex; gap: 6px; align-items: center; }
+    .cmd code { flex: 1; min-width: 0; overflow-wrap: anywhere; font: 12.5px var(--mono); background: var(--paper); padding: 3px 6px; border: 1px solid var(--rule); }
+    .copy { border: 1.5px solid var(--ink); background: none; font-size: 12px; padding: 2px 8px; cursor: pointer; white-space: nowrap; }
+    .done { font-size: 13px; font-weight: 600; display: flex; gap: 6px; align-items: center; cursor: pointer; }
+    .install .summary { margin: 0; font-size: 13.5px; font-weight: 600; color: var(--m-using); }
     .mmsg { font-size: 12.5px; color: var(--mute); min-height: 1em; }
     .stack span { font: 12.5px var(--mono); border: 1.5px solid var(--ink); padding: 1px 8px; }
 
@@ -120,11 +143,11 @@
       /* Desktop: the page never scrolls; a short screen scrolls the reading column, a long tab its panel. */
       html:has(.read:not([hidden])), html:has(.read:not([hidden])) body { overflow: hidden; }
       .view:has(.read:not([hidden])) { height: 100%; padding-bottom: max(36px, env(safe-area-inset-bottom)); }
-      .read { flex: 1; min-height: 0; grid-template-columns: minmax(0, 1fr) 480px; }
+      .read { flex: 1; min-height: 0; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+      .left { overflow-y: auto; min-height: 0; }
       .col { overflow-y: auto; }
       .more { min-height: 236px; }
-      .fig { height: 100%; }
-      .fig .dia { max-height: 100%; width: auto; max-width: 100%; }
+      .fig .dia { max-height: 46vh; width: auto; max-width: 100%; }
     }
 
     /* Diagram recolor; coupled with the black-on-cream palette arch-blueprint draws in. */
@@ -159,7 +182,10 @@
       <div id="tblock" class="tblock" hidden></div>
     </div>
     <div id="read" class="read" hidden>
-      <figure id="fig" class="fig" aria-label="架構圖"></figure>
+      <div class="left">
+        <figure id="fig" class="fig" aria-label="架構圖"></figure>
+        <section id="guide" class="guide sec"></section>
+      </div>
       <div id="col" class="col"></div>
     </div>
   </main>

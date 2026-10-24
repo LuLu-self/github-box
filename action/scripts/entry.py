@@ -27,7 +27,8 @@ _MD_SPECIAL = re.compile(r"([\\`*_\[\]()#!|~])")
 _AUTOLINK = re.compile(r"(?:https?://|www\.)\S+|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", re.I)
 # Full record: written to the hidden sidecar library/<stem>.json.
 READING_KEYS = ("tagline", "intro", "examples", "requirements", "summary", "highlights", "purpose", "scenarios",
-                "verdict", "verdict_reason", "capabilities", "fit", "risks", "unverified", "tasks")
+                "verdict", "verdict_reason", "capabilities", "fit", "risks", "unverified", "tasks",
+                "when_to_use", "how_to_use", "diagram_note", "diagram_nodes")
 FM_KEYS = ("repo", "repo_id", "url", "description", "language", "stars", "stars_at", "license", "category",
            "tags", "stack", "task_areas", *READING_KEYS, "sources", "installable", "activity", "sightings", "analyzed_at", "analysis")
 # Visible table: GitHub renders every frontmatter key, so only human-facing fields go here.
@@ -196,7 +197,10 @@ def build_frontmatter(meta: dict, analysis: dict | None, sightings: list[dict], 
         }
         for k in READING_KEYS:
             v = analysis[k]
-            carried[k] = [to_plain(x) for x in v] if isinstance(v, list) else to_plain(v)
+            if k == "diagram_nodes":
+                carried[k] = [{f: to_plain(n[f]) for f in ("label", "zh", "role")} for n in v]
+            else:
+                carried[k] = [to_plain(x) for x in v] if isinstance(v, list) else to_plain(v)
     fm.update(carried)
     fm["sightings"] = list(sightings)
     return {k: fm[k] for k in FM_KEYS}
@@ -221,12 +225,17 @@ def _auto_block(analysis: dict, svg_name: str | None, full: str) -> str:
         ("\n## 待查證\n\n" + "".join(f"- {safe_text(x)}\n" for x in analysis["unverified"])) if analysis["unverified"] else "",
         "\n## 可用在哪些任務\n\n" + "".join(f"- {safe_text(x)}\n" for x in analysis["tasks"])
         + "\n任務類型：" + "、".join(safe_text(x) for x in analysis["task_areas"]) + "\n",
+        "\n## 什麼時候用\n\n" + "".join(f"- {safe_text(x)}\n" for x in analysis["when_to_use"]),
+        "\n## 怎麼用\n\n" + "".join(f"- {safe_text(x)}\n" for x in analysis["how_to_use"]),
         "\n## 技術摘要\n\n" + safe_text(analysis["summary"]) + "\n",
         "\n## 值得借鏡\n\n" + "".join(f"- {safe_text(h)}\n" for h in analysis["highlights"]),
         "\n## 技術棧\n\n" + " · ".join(safe_text(s) for s in analysis["stack"]) + "\n",
     ]
     if svg_name:
         parts.append(f"\n## 架構圖\n\n![architecture]({svg_name})\n")
+    parts.append("\n## 看懂架構圖\n\n" + safe_text(analysis["diagram_note"]) + "\n\n| 節點 | 中文 | 作用 |\n|---|---|---|\n"
+                 + "".join(f"| {safe_text(n['label'])} | {safe_text(n['zh'])} | {safe_text(n['role'])} |\n"
+                           for n in analysis["diagram_nodes"]))
     parts.append(f"\n## 原始出處\n\n- [{md_escape(full)}](https://github.com/{full})\n" + _source_links(full, analysis["sources"]))
     return "".join(parts)
 

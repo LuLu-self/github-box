@@ -33,7 +33,11 @@ $PROFILE
     "risks": ["<不適合的情況／風險: 1-3 zh-TW lines of 6-120 characters: concrete situations where it should not be used, e.g. 還在 beta，不要拿來對客戶交付>"],
     "unverified": ["<待查證: 0-3 zh-TW lines of 6-100 characters: what you could not confirm from the files, e.g. 是否仍有人回 issue>"],
     "tasks": ["<可用在哪些任務: 2-5 zh-TW task phrases of 4-30 characters, written as tasks the owner might start, e.g. 整理會議逐字稿, 畫系統架構圖>"],
-    "task_areas": ["<1-3 names from the task area list below>"]}
+    "task_areas": ["<1-3 names from the task area list below>"],
+    "when_to_use": ["<什麼時候用: 1-3 zh-TW lines of 6-80 characters: the moment in the owner's work to reach for it, e.g. 寫完規格要給研發看之前>"],
+    "how_to_use": ["<怎麼用: 1-4 zh-TW lines of 6-120 characters, concrete steps. For a Claude skill or plugin, name the exact slash command or the kind of request that triggers it, e.g. 在 Claude Code 輸入 /diagram 加上描述, or 對 Claude 說「幫我畫流程圖」會自動啟用>"],
+    "diagram_note": "<20-300 zh-TW characters: what the architecture diagram in step 3 is telling a non-engineer — the main flow from input to output in plain words>",
+    "diagram_nodes": [{"label": "<a node title exactly as written in diagram.svg>", "zh": "<中文名稱, 1-20 characters>", "role": "<它做什麼, 4-60 zh-TW characters>"}]}
    Hard limits, checked by a validator that rejects the whole file on any violation:
    - tagline: 4-20 characters, must contain Chinese.
    - intro: 30-300 characters, must contain Chinese.
@@ -51,6 +55,11 @@ $PROFILE
    - capabilities: 1-3 items of 10-120 characters. fit: 1-2 items of 10-150 characters.
    - risks: 1-3 items of 6-120 characters. unverified: 0-3 items of 6-100 characters.
    - tasks: 2-5 items of 4-30 characters. task_areas: 1-3 distinct names from the list.
+   - when_to_use: 1-3 items of 6-80 characters. how_to_use: 1-4 items of 6-120 characters.
+   - diagram_note: 20-300 characters. diagram_nodes: 1-16 objects with exactly label (1-40
+     characters), zh (1-20 characters, Chinese) and role (4-60 characters, Chinese), one per
+     node box you draw in step 3, in reading order. Write summary.json after the diagram so
+     the labels match; if you draw no diagram, describe the main components instead.
    - every text field above must contain Chinese.
    fit, risks and the verdict are your inference, not verified facts; the page labels
    them as such, so do not hedge inside the text, and put anything you could not

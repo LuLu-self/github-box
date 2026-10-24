@@ -96,6 +96,22 @@
     .card .bd { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
     .card .bd span { font-size: 12px; border: 1px solid var(--rule); border-radius: 4px; padding: 0 7px; color: var(--mute); }
     .card.pending { border-style: dashed; }
+    /* 我的標記: a coloured left edge and chip per card; 未試 stays neutral. */
+    .card[data-tried] { border-left-width: 6px; }
+    .card[data-tried]:hover { padding-left: 15.5px; }
+    .card[data-tried="試過"] { border-left-color: var(--m-tried); }
+    .card[data-tried="在用"] { border-left-color: var(--m-using); background: var(--m-using-bg); }
+    .card[data-tried="放棄"] { border-left-color: var(--m-dropped); opacity: .72; }
+    .card .bd span.mark { font-weight: 700; border-color: currentColor; }
+    .card[data-tried="試過"] .bd span.mark { color: var(--m-tried); background: var(--m-tried-bg); }
+    .card[data-tried="在用"] .bd span.mark { color: var(--m-using); background: var(--sheet); }
+    .card[data-tried="放棄"] .bd span.mark { color: var(--m-dropped); background: var(--m-dropped-bg); }
+    .legend { display: flex; gap: 12px; margin: 6px 0 0; font-size: 12px; color: var(--mute); }
+    .legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .legend span::before { content: ""; width: 12px; height: 12px; border-radius: 3px; border: 1.5px solid var(--line); }
+    .legend span[data-tried="試過"]::before { background: var(--m-tried); border-color: var(--m-tried); }
+    .legend span[data-tried="在用"]::before { background: var(--m-using); border-color: var(--m-using); }
+    .legend span[data-tried="放棄"]::before { background: var(--m-dropped); border-color: var(--m-dropped); }
     .card.failed { border-color: var(--err); }
     .card.failed .tl { color: var(--err); }
     #recent .empty { color: var(--mute); font-size: 14px; padding: 16px 2px; margin: 0; }
@@ -176,6 +192,7 @@
         <a id="library" href="#" target="_blank" rel="noopener">GitHub ↗</a>
       </div>
       <div id="stats" class="stats" aria-label="收藏總覽"></div>
+      <p class="legend" aria-label="我的標記顏色"><span data-tried="未試">未試</span><span data-tried="試過">試過</span><span data-tried="在用">在用</span><span data-tried="放棄">放棄</span></p>
       <p id="lib-note" class="lib-note" role="status"></p>
       <div class="lib-body">
         <nav id="cats" class="cats" aria-label="分類"></nav>

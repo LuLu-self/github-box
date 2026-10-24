@@ -87,8 +87,36 @@ class InstallTest(unittest.TestCase):
         out = self.run_install()
         self.assertEqual(out["installed"], 0)
         self.assertEqual(len(out["problems"]), 1)
+        res = json.loads((self.repo / "dist/installs.json").read_text(encoding="utf-8"))["items"]
+        self.assertEqual(res["o__app"]["status"], "problem")
         self.assertEqual(self.calls, [])
-        self.assertIn("沒裝成的", (self.repo / "INSTALL.md").read_text(encoding="utf-8"))
+        self.assertIn("⚠️ 這個 repo 不是 Claude 外掛或 skill", (self.repo / "INSTALL.md").read_text(encoding="utf-8"))
+
+    def test_root_marketplace_plugin_is_relisted_by_github_source(self):
+        self.upstream_file("o/dd", ".claude-plugin/marketplace.json", json.dumps({"plugins": [{"name": "diagram-design", "source": "./"}]}))
+        self.upstream_file("o/dd", "skills/diagram-design/SKILL.md", "---\nname: diagram-design\n---\n")
+        self.write([{"md": "library/o__dd.md", "repo": "o/dd", "installable": {"kind": "marketplace", "skills": []}}],
+                   {"o__dd": {"install": True, "updated_at": "2026-10-24T10:00:00+00:00"}})
+        self.run_install()
+        p = self.market()["plugins"][1]
+        self.assertEqual((p["name"], p["source"]["repo"]), ("diagram-design", "o/dd"))
+        res = json.loads((self.repo / "dist/installs.json").read_text(encoding="utf-8"))["items"]["o__dd"]
+        self.assertEqual(res["status"], "ready")
+        self.assertEqual(res["code_cmd"], "/plugin install diagram-design@github-box")
+        self.assertEqual(res["zips"], ["dist/o__dd/diagram-design.zip"])
+        self.assertEqual(res["requested_at"], "2026-10-24T10:00:00+00:00")
+        install_md = (self.repo / "INSTALL.md").read_text(encoding="utf-8")
+        self.assertEqual(install_md.count("/plugin install diagram-design@github-box"), 1)
+
+    def test_oversized_skill_is_reported_not_silent(self):
+        self.upstream_file("o/big", "skills/big/SKILL.md", "---\nname: big\n---\n")
+        self.write([{"md": "library/o__big.md", "repo": "o/big", "installable": {"kind": "skill", "skills": ["skills/big"]}}],
+                   {"o__big": {"install": True}})
+        with mock.patch.object(install, "ZIP_MAX", 1):
+            self.run_install()
+        res = json.loads((self.repo / "dist/installs.json").read_text(encoding="utf-8"))["items"]["o__big"]
+        self.assertEqual(res["status"], "partial")
+        self.assertIn("無法打包", res["problems"][0])
 
     def test_marketplace_repo_is_listed_not_nested(self):
         self.upstream_file("o/market", ".claude-plugin/marketplace.json", "{}")

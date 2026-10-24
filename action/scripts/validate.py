@@ -20,7 +20,8 @@ TAG_RE = re.compile(r"^[a-z0-9][a-z0-9.+-]{0,39}$")
 STACK_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .+#/-]{0,29}$")
 SUMMARY_KEYS = {"tagline", "intro", "examples", "requirements", "summary", "category", "tags", "stack", "highlights",
                 "purpose", "scenarios", "sources", "verdict", "verdict_reason", "capabilities", "fit", "risks",
-                "unverified", "tasks", "task_areas"}
+                "unverified", "tasks", "task_areas", "when_to_use", "how_to_use", "diagram_note", "diagram_nodes"}
+NODE_KEYS = {"label", "zh", "role"}
 VERDICTS = ("能用", "有條件才能用", "不建議用")
 
 
@@ -115,13 +116,25 @@ def validate_summary(text: str, categories: list[str]) -> list[str]:
     if not (isinstance(vr, str) and 10 <= len(vr) <= 80 and CJK.search(vr)):
         errors.append("verdict_reason: 10-80 chars of plain Traditional Chinese")
     for key, lo, hi, mn, mx in (("capabilities", 1, 3, 10, 120), ("fit", 1, 2, 10, 150), ("risks", 1, 3, 6, 120),
-                                ("unverified", 0, 3, 6, 100), ("tasks", 2, 5, 4, 30)):
+                                ("unverified", 0, 3, 6, 100), ("tasks", 2, 5, 4, 30),
+                                ("when_to_use", 1, 3, 6, 80), ("how_to_use", 1, 4, 6, 120)):
         if not _zh_list(data.get(key), lo, hi, mn, mx):
             errors.append(f"{key}: {lo}-{hi} Chinese lines of {mn}-{mx} chars")
     areas = data.get("task_areas")
     if not (isinstance(areas, list) and 1 <= len(areas) <= 3 and len(set(map(str, areas))) == len(areas)
             and all(a in profile.area_names() for a in areas)):
         errors.append(f"task_areas: 1-3 distinct names from {profile.area_names()}")
+    note = data.get("diagram_note")
+    if not (isinstance(note, str) and 20 <= len(note) <= 300 and CJK.search(note)):
+        errors.append("diagram_note: 20-300 chars of plain Traditional Chinese")
+    nodes = data.get("diagram_nodes")
+    if not (isinstance(nodes, list) and 1 <= len(nodes) <= 16 and all(
+            isinstance(n, dict) and set(n) == NODE_KEYS
+            and isinstance(n["label"], str) and 1 <= len(n["label"].strip()) <= 40
+            and isinstance(n["zh"], str) and 1 <= len(n["zh"]) <= 20 and CJK.search(n["zh"])
+            and isinstance(n["role"], str) and 4 <= len(n["role"]) <= 60 and CJK.search(n["role"])
+            for n in nodes)):
+        errors.append("diagram_nodes: 1-16 objects {label 1-40, zh 1-20 Chinese, role 4-60 Chinese}")
     return errors
 
 

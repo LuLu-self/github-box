@@ -165,9 +165,29 @@ export function health(activity) {
   return activity.stale === true ? '半年未更新' : '';
 }
 
+// Where the owner confirmed the install landed; GitHub Box cannot see inside their Claude apps.
+export const SURFACES = [['code', 'Claude Code'], ['chat', 'Claude Chat'], ['cowork', 'Cowork']];
+
 export function stateItem(state, stem) {
   const it = state && typeof state === 'object' && Object.hasOwn(state, stem) ? state[stem] : null;
-  return { tried: it && TRIED.includes(it.tried) ? it.tried : '未試', install: Boolean(it && it.install === true), owned: Boolean(it && it.owned === true) };
+  const inst = it && it.installed && typeof it.installed === 'object' ? it.installed : {};
+  return { tried: it && TRIED.includes(it.tried) ? it.tried : '未試', install: Boolean(it && it.install === true), owned: Boolean(it && it.owned === true),
+    installed: Object.fromEntries(SURFACES.map(([k]) => [k, inst[k] === true])), updated_at: it && typeof it.updated_at === 'string' ? it.updated_at : '' };
+}
+
+// dist/installs.json, written by the install workflow: {items: {stem: {status, code_cmd, zips, skills, problems, requested_at, built_at}}}.
+export async function loadInstalls(cfg, fetchImpl = fetch) {
+  const r = await ghRaw(cfg, 'dist/installs.json', fetchImpl);
+  if (r.status !== 200) return {};
+  try { const d = JSON.parse(r.text); return d && d.items && typeof d.items === 'object' ? d.items : {}; } catch { return {}; }
+}
+
+// pending while the workflow has not yet built the request the owner made last.
+export function installPhase(mark, result) {
+  if (!mark.install) return 'off';
+  if (!result || typeof result !== 'object') return 'pending';
+  if (mark.updated_at && result.requested_at && Date.parse(result.requested_at) < Date.parse(mark.updated_at) - 1000) return 'pending';
+  return ['ready', 'partial', 'problem'].includes(result.status) ? result.status : 'pending';
 }
 
 function b64decodeUtf8(b64) {
@@ -211,7 +231,7 @@ export async function saveStateItem(cfg, stem, patch, repoName, fetchImpl = fetc
     const res = await fetchImpl(`${API}/${cfg.repo}/contents/state.json`, {
       method: 'PUT', cache: 'no-cache', headers: { ...headers(cfg, 'application/vnd.github+json'), 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
-    if (res.ok) return { tried: next.tried, install: next.install === true, owned: next.owned === true };
+    if (res.ok) return stateItem({ [stem]: next }, stem);
     if (res.status !== 409 && res.status !== 422) throw new RemoveError(res.status);
   }
   throw new RemoveError(409);
