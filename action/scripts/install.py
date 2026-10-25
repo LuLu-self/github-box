@@ -34,6 +34,12 @@ TRIED = ("未試", "試過", "在用", "放棄")
 MARKETPLACE = "github-box"
 SELF = "github-box"
 ZIP_MAX = 25 * 1024 * 1024
+# claude.ai rejects an uploaded skill zip with more than 200 files; keep a little under it.
+UPLOAD_FILE_LIMIT = 200
+UPLOAD_FILE_TARGET = 190
+_EXAMPLE_DIRS = {"examples", "example", "samples", "sample", "demo", "demos", "gallery", "screenshots"}
+_EXAMPLE_NAME = re.compile(r"^(example|sample|demo)[-_.]", re.I)
+_VARIANT = re.compile(r"[-_.](dark|light|full|animated|motion)\.[A-Za-z0-9]+$", re.I)
 OWNED = (".claude-plugin", "plugins/github-box", "dist", "INSTALL.md")
 
 
@@ -89,10 +95,39 @@ def clone(full: str, dest: Path, sha: str | None = None) -> str | None:
     return subprocess.run(["git", "-C", str(dest), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip() or None
 
 
-def zip_dir(src: Path, out: Path, top: str) -> bool:
+def _is_example(rel: Path) -> bool:
+    return bool(_EXAMPLE_NAME.match(rel.name)) or any(part.lower() in _EXAMPLE_DIRS for part in rel.parts[:-1])
+
+
+def trim_for_upload(files: list[Path], src: Path, target: int = UPLOAD_FILE_TARGET) -> list[Path]:
+    """Drops only example material until at most `target` files remain: first the dark/full/animated
+    variants of each example, then any other example, largest first. SKILL.md, references, scripts and
+    templates are never touched."""
+    kept = list(files)
+    rel = lambda p: p.relative_to(src)
+    for tier in (lambda p: _is_example(rel(p)) and _VARIANT.search(p.name),
+                 lambda p: _is_example(rel(p))):
+        if len(kept) <= target:
+            break
+        for p in sorted((p for p in kept if tier(p)), key=lambda p: (-p.stat().st_size, str(p))):
+            if len(kept) <= target:
+                break
+            kept.remove(p)
+    return kept
+
+
+def zip_dir(src: Path, out: Path, top: str) -> int | None:
+    """Writes the zip and returns how many example files were left out to fit claude.ai's 200-file
+    limit (0 = nothing trimmed), or None when it cannot be made to fit."""
     files = [p for p in sorted(src.rglob("*")) if p.is_file() and ".git" not in p.relative_to(src).parts]
+    dropped = 0
+    if len(files) > UPLOAD_FILE_LIMIT:
+        trimmed = trim_for_upload(files, src)
+        dropped, files = len(files) - len(trimmed), trimmed
+        if len(files) > UPLOAD_FILE_LIMIT:
+            return None
     if sum(p.stat().st_size for p in files) > ZIP_MAX:
-        return False
+        return None
     out.parent.mkdir(parents=True, exist_ok=True)
     # Fixed timestamps keep an unchanged skill byte-identical, so a rebuild adds nothing to git history.
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
@@ -101,7 +136,7 @@ def zip_dir(src: Path, out: Path, top: str) -> bool:
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o644 << 16
             z.writestr(info, p.read_bytes())
-    return True
+    return dropped
 
 
 def skill_name(skill_dir: Path, fallback: str) -> str:
@@ -162,7 +197,7 @@ def _skill_dirs(src: Path, inst: dict) -> list[str]:
 
 def _build_one(repo: Path, stem: str, e: dict, inst: dict, pin: str | None, taken: set) -> tuple[dict, dict | None]:
     """Returns (row for INSTALL.md / installs.json, marketplace plugin entry or None)."""
-    row = {"repo": e["repo"], "kind": inst["kind"], "name": None, "sha": None, "skills": [], "zips": [],
+    row = {"repo": e["repo"], "kind": inst["kind"], "name": None, "sha": None, "skills": [], "zips": [], "trimmed": 0,
            "code_cmd": None, "market_cmd": None, "problems": []}
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / "src"
@@ -178,10 +213,12 @@ def _build_one(repo: Path, stem: str, e: dict, inst: dict, pin: str | None, take
             sname = skill_name(sd, plugin_name(e["repo"], set()))
             row["skills"].append(sname)
             out = repo / "dist" / stem / f"{sname}.zip"
-            if zip_dir(sd, out, sname):
-                row["zips"].append(out.relative_to(repo).as_posix())
-            else:
-                row["problems"].append(f"技能 {sname} 超過 {ZIP_MAX // (1024 * 1024)}MB，無法打包給 Chat／Cowork 上傳")
+            dropped = zip_dir(sd, out, sname)
+            if dropped is None:
+                row["problems"].append(f"技能 {sname} 超過 {ZIP_MAX // (1024 * 1024)}MB 或檔案數無法壓到 {UPLOAD_FILE_LIMIT} 個以內，無法打包給 Chat／Cowork 上傳")
+                continue
+            row["zips"].append(out.relative_to(repo).as_posix())
+            row["trimmed"] += dropped
         plugin = None
         if inst["kind"] == "marketplace":
             served = _root_plugins(src)
@@ -214,6 +251,8 @@ def check_zip(path: Path) -> str | None:
             if z.testzip() is not None:
                 return "zip 檔損壞"
             names = z.namelist()
+            if len(names) > UPLOAD_FILE_LIMIT:
+                return f"zip 有 {len(names)} 個檔案，超過 claude.ai 上傳上限 {UPLOAD_FILE_LIMIT}"
             tops = {n.split("/")[0] for n in names}
             if len(tops) != 1:
                 return "zip 最上層不是單一技能資料夾"
@@ -342,6 +381,8 @@ def render_install(library: str, pages: str, rows: list, now: str) -> str:
         if r["market_cmd"]:
             L.append(f"  - Claude Code：它自己就是套件市集，執行 `{r['market_cmd']}` 後用 `/plugin` 選要裝的")
         L += [f"  - Chat／Cowork：上傳 `{z}`" for z in r["zips"]]
+        if r.get("trimmed"):
+            L.append(f"  - ℹ️ 為了符合 claude.ai 的 {UPLOAD_FILE_LIMIT} 檔上限，Chat／Cowork 的 zip 是精簡版（少了 {r['trimmed']} 個範例檔）；Claude Code 版是完整的")
         L += [f"  - ⚠️ {p}" for p in r["problems"]]
     return "\n".join(L) + "\n"
 

@@ -159,6 +159,48 @@ class VerifyTest(unittest.TestCase):
         install.zip_dir(src, self.root / "b.zip", "s")
         self.assertEqual((self.root / "a.zip").read_bytes(), (self.root / "b.zip").read_bytes())
 
+    def _fat_skill(self, n_variants=60):
+        src = self.root / "fat"; (src / "assets").mkdir(parents=True); (src / "references").mkdir(); (src / "scripts").mkdir()
+        (src / "SKILL.md").write_text("---\nname: fat\ndescription: d\n---\n")
+        for i in range(8):
+            (src / "references" / f"r{i}.md").write_text("r")
+        (src / "scripts" / "run.py").write_text("x")
+        (src / "assets" / "template.html").write_text("t")
+        (src / "assets" / "icons.html").write_text("t")
+        for i in range(n_variants):
+            for suffix in ("", "-dark", "-full", "-animated"):
+                (src / "assets" / f"example-t{i}{suffix}.html").write_text("e" * (10 + i))
+        return src
+
+    def test_over_200_files_trims_only_examples_variants_first(self):
+        src = self._fat_skill(60)
+        total = sum(1 for p in src.rglob("*") if p.is_file())
+        self.assertGreater(total, 200)
+        dropped = install.zip_dir(src, self.root / "fat.zip", "fat")
+        self.assertEqual(dropped, total - len(zipfile.ZipFile(self.root / "fat.zip").namelist()))
+        names = zipfile.ZipFile(self.root / "fat.zip").namelist()
+        self.assertLessEqual(len(names), install.UPLOAD_FILE_TARGET)
+        for must in ("fat/SKILL.md", "fat/scripts/run.py", "fat/assets/template.html", "fat/assets/icons.html"):
+            self.assertIn(must, names)
+        self.assertEqual(sum(n.startswith("fat/references/") for n in names), 8)
+        self.assertTrue(all(f"fat/assets/example-t{i}.html" in names for i in range(60)))  # base examples survive
+        self.assertIsNone(install.check_zip(self.root / "fat.zip"))
+
+    def test_small_skill_is_not_trimmed(self):
+        src = self._fat_skill(10)
+        self.assertEqual(install.zip_dir(src, self.root / "s.zip", "s"), 0)
+
+    def test_unfittable_skill_returns_none(self):
+        src = self.root / "huge"; (src / "references").mkdir(parents=True)
+        (src / "SKILL.md").write_text("---\nname: h\ndescription: d\n---\n")
+        for i in range(260):
+            (src / "references" / f"r{i}.md").write_text("r")
+        self.assertIsNone(install.zip_dir(src, self.root / "h.zip", "h"))
+
+    def test_check_zip_rejects_over_200_files(self):
+        z = self.make_zip("many.zip", {"s/SKILL.md": "---\nname: s\ndescription: d\n---\n", **{f"s/f{i}": "x" for i in range(205)}})
+        self.assertIn("200", install.check_zip(z))
+
     def test_check_zip(self):
         ok = self.make_zip("ok.zip", {"s/SKILL.md": "---\nname: s\ndescription: d\n---\n"})
         self.assertIsNone(install.check_zip(ok))
