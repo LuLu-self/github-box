@@ -26,6 +26,8 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+import yaml
+
 import detect
 
 STEM_RE = re.compile(r"^[a-z0-9._-]+__[a-z0-9._-]+$")
@@ -37,6 +39,10 @@ ZIP_MAX = 25 * 1024 * 1024
 # claude.ai rejects an uploaded skill zip with more than 200 files; keep a little under it.
 UPLOAD_FILE_LIMIT = 200
 UPLOAD_FILE_TARGET = 190
+# Agent Skills spec / claude.ai docs: name is lowercase letters, digits and hyphens up to 64 chars and must
+# equal the top folder; description is required, at most 1,024 chars (one help article says 200).
+SKILL_NAME_RE = re.compile(r"^[a-z0-9-]{1,64}$")
+DESCRIPTION_MAX = 1024
 _EXAMPLE_DIRS = {"examples", "example", "samples", "sample", "demo", "demos", "gallery", "screenshots"}
 _EXAMPLE_NAME = re.compile(r"^(example|sample|demo)[-_.]", re.I)
 _VARIANT = re.compile(r"[-_.](dark|light|full|animated|motion)\.[A-Za-z0-9]+$", re.I)
@@ -99,53 +105,107 @@ def _is_example(rel: Path) -> bool:
     return bool(_EXAMPLE_NAME.match(rel.name)) or any(part.lower() in _EXAMPLE_DIRS for part in rel.parts[:-1])
 
 
-def trim_for_upload(files: list[Path], src: Path, target: int = UPLOAD_FILE_TARGET) -> list[Path]:
-    """Drops only example material until at most `target` files remain: first the dark/full/animated
-    variants of each example, then any other example, largest first. SKILL.md, references, scripts and
-    templates are never touched."""
-    kept = list(files)
+PACK_NAME = "packed-files.txt"
+PACK_MARK = "===== GITHUB-BOX PACKED FILE: "
+
+
+def pack_plan(files: list[Path], src: Path, target: int = UPLOAD_FILE_TARGET) -> tuple[list[Path], list[Path]]:
+    """Splits files into (kept as real files, merged into PACK_NAME) so the zip fits claude.ai's limit.
+    Nothing is dropped. Only text example material is merged: first the dark/full/animated variants,
+    then other examples. SKILL.md, references, scripts and templates always stay real files."""
     rel = lambda p: p.relative_to(src)
+
+    def is_text(p: Path) -> bool:
+        try:
+            p.read_bytes().decode("utf-8")
+            return True
+        except UnicodeDecodeError:
+            return False
+
+    # Files SKILL.md itself names must exist as real files (claude.ai: "files that skill.md references must exist").
+    skill_md = src / "SKILL.md"
+    named = skill_md.read_bytes().decode("utf-8", errors="replace") if skill_md.is_file() else ""
+    protected = {p for p in files if rel(p).as_posix() in named}
+    direct, packed = list(files), []
     for tier in (lambda p: _is_example(rel(p)) and _VARIANT.search(p.name),
                  lambda p: _is_example(rel(p))):
-        if len(kept) <= target:
+        if len(direct) + (1 if packed else 0) <= target:
             break
-        for p in sorted((p for p in kept if tier(p)), key=lambda p: (-p.stat().st_size, str(p))):
-            if len(kept) <= target:
-                break
-            kept.remove(p)
-    return kept
+        move = [p for p in direct if tier(p) and p not in protected and is_text(p)]
+        direct = [p for p in direct if p not in move]
+        packed += move
+    return direct, sorted(packed)
+
+
+def pack_note(name: str, count: int) -> str:
+    return (
+        "\n> **claude.ai 上傳版說明（GitHub Box 自動加入）**：claude.ai 限制一個 skill 最多 200 個檔案，"
+        f"所以這個技能有 {count} 個範例檔沒有刪除，而是原封不動合併在本資料夾的 `{PACK_NAME}` 裡，"
+        "每個檔案前面有一行 `" + PACK_MARK + "<原本路徑> =====`。\n"
+        "> When an instruction points to a file (for example `assets/example-x-dark.html`) that does not exist in this skill folder, "
+        f"it is inside `{PACK_NAME}`. Extract it with Python and read the extracted copy:\n"
+        "> `python3 -c \"import sys,pathlib;d=pathlib.Path(sys.argv[1]);t=(d/'" + PACK_NAME + "').read_bytes().decode();"
+        "[pathlib.Path('/tmp/" + name + "-files',f).parent.mkdir(parents=True,exist_ok=True) or pathlib.Path('/tmp/" + name + "-files',f).write_bytes(c.encode()) "
+        "for f,c in (s.split(' =====\\n',1) for s in t.split('" + PACK_MARK + "')[1:])]\" <this skill folder>`\n"
+        f"> then read `/tmp/{name}-files/<原本路徑>`. All other files are complete and unchanged.\n"
+    )
+
+
+def _with_note(skill_md: str, note: str) -> str:
+    """Inserts the note right after the YAML frontmatter so name/description stay first."""
+    if skill_md.startswith("---"):
+        end = skill_md.find("\n---", 3)
+        if end != -1:
+            cut = skill_md.find("\n", end + 4)
+            cut = len(skill_md) if cut == -1 else cut + 1
+            return skill_md[:cut] + note + skill_md[cut:]
+    return note + skill_md
+
+
+def unpack(text: str) -> dict[str, str]:
+    return {f: c for f, c in (part.split(" =====\n", 1) for part in text.split(PACK_MARK)[1:])}
 
 
 def zip_dir(src: Path, out: Path, top: str) -> int | None:
-    """Writes the zip and returns how many example files were left out to fit claude.ai's 200-file
-    limit (0 = nothing trimmed), or None when it cannot be made to fit."""
+    """Writes the zip and returns how many files had to be merged into PACK_NAME to fit claude.ai's
+    200-file limit (0 = none), or None when it cannot fit. Every source file ends up in the zip,
+    either as itself or byte-for-byte inside PACK_NAME."""
     files = [p for p in sorted(src.rglob("*")) if p.is_file() and ".git" not in p.relative_to(src).parts]
-    dropped = 0
-    if len(files) > UPLOAD_FILE_LIMIT:
-        trimmed = trim_for_upload(files, src)
-        dropped, files = len(files) - len(trimmed), trimmed
-        if len(files) > UPLOAD_FILE_LIMIT:
-            return None
     if sum(p.stat().st_size for p in files) > ZIP_MAX:
         return None
+    direct, packed = (files, []) if len(files) <= UPLOAD_FILE_LIMIT else pack_plan(files, src)
+    if len(direct) + (1 if packed else 0) > UPLOAD_FILE_LIMIT:
+        return None
+    entries = {p.relative_to(src).as_posix(): p.read_bytes() for p in direct}
+    if packed:
+        # Raw bytes, not read_text(): read_text would turn \r\n into \n and silently change CRLF files.
+        bundle = "".join(f"{PACK_MARK}{p.relative_to(src).as_posix()} =====\n{p.read_bytes().decode('utf-8')}" for p in packed)
+        entries[PACK_NAME] = bundle.encode("utf-8")
+        if "SKILL.md" in entries:
+            entries["SKILL.md"] = _with_note(entries["SKILL.md"].decode("utf-8", errors="replace"), pack_note(top, len(packed))).encode("utf-8")
+        # Completeness: every original file is present, unchanged.
+        back = unpack(bundle)
+        assert set(back) | (set(entries) - {PACK_NAME}) == {p.relative_to(src).as_posix() for p in files}
+        assert all(back[p.relative_to(src).as_posix()].encode("utf-8") == p.read_bytes() for p in packed)
     out.parent.mkdir(parents=True, exist_ok=True)
     # Fixed timestamps keep an unchanged skill byte-identical, so a rebuild adds nothing to git history.
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-        for p in files:
-            info = zipfile.ZipInfo(f"{top}/{p.relative_to(src).as_posix()}", date_time=(1980, 1, 1, 0, 0, 0))
+        for name in sorted(entries):
+            info = zipfile.ZipInfo(f"{top}/{name}", date_time=(1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o644 << 16
-            z.writestr(info, p.read_bytes())
-    return dropped
+            z.writestr(info, entries[name])
+    return len(packed)
 
 
 def skill_name(skill_dir: Path, fallback: str) -> str:
     try:
-        head = (skill_dir / "SKILL.md").read_text(encoding="utf-8", errors="replace")[:2000]
+        head = (skill_dir / "SKILL.md").read_text(encoding="utf-8", errors="replace")
     except OSError:
         head = ""
-    m = re.search(r"^name:\s*['\"]?([A-Za-z0-9][A-Za-z0-9_-]{0,63})", head, re.M)
-    return m.group(1).lower() if m else fallback
+    fm = _frontmatter(head) or {}
+    name = str(fm.get("name") or "")
+    return name if SKILL_NAME_RE.match(name) else fallback
 
 
 def previous_pins(repo: Path) -> dict:
@@ -197,7 +257,7 @@ def _skill_dirs(src: Path, inst: dict) -> list[str]:
 
 def _build_one(repo: Path, stem: str, e: dict, inst: dict, pin: str | None, taken: set) -> tuple[dict, dict | None]:
     """Returns (row for INSTALL.md / installs.json, marketplace plugin entry or None)."""
-    row = {"repo": e["repo"], "kind": inst["kind"], "name": None, "sha": None, "skills": [], "zips": [], "trimmed": 0,
+    row = {"repo": e["repo"], "kind": inst["kind"], "name": None, "sha": None, "skills": [], "zips": [], "packed": 0,
            "code_cmd": None, "market_cmd": None, "problems": []}
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / "src"
@@ -218,7 +278,7 @@ def _build_one(repo: Path, stem: str, e: dict, inst: dict, pin: str | None, take
                 row["problems"].append(f"技能 {sname} 超過 {ZIP_MAX // (1024 * 1024)}MB 或檔案數無法壓到 {UPLOAD_FILE_LIMIT} 個以內，無法打包給 Chat／Cowork 上傳")
                 continue
             row["zips"].append(out.relative_to(repo).as_posix())
-            row["trimmed"] += dropped
+            row["packed"] += dropped
         plugin = None
         if inst["kind"] == "marketplace":
             served = _root_plugins(src)
@@ -244,6 +304,19 @@ def _build_one(repo: Path, stem: str, e: dict, inst: dict, pin: str | None, take
 VERIFY_TRIES = 3
 
 
+def _frontmatter(text: str) -> dict | None:
+    if not text.startswith("---"):
+        return None
+    end = text.find("\n---", 3)
+    if end == -1:
+        return None
+    try:
+        data = yaml.safe_load(text[3:end])
+    except yaml.YAMLError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def check_zip(path: Path) -> str | None:
     """None when the zip is uploadable: one top folder holding SKILL.md with name and description."""
     try:
@@ -253,14 +326,25 @@ def check_zip(path: Path) -> str | None:
             names = z.namelist()
             if len(names) > UPLOAD_FILE_LIMIT:
                 return f"zip 有 {len(names)} 個檔案，超過 claude.ai 上傳上限 {UPLOAD_FILE_LIMIT}"
+            packs = [n for n in names if n.endswith("/" + PACK_NAME)]
             tops = {n.split("/")[0] for n in names}
             if len(tops) != 1:
                 return "zip 最上層不是單一技能資料夾"
-            head = z.read(f"{tops.pop()}/SKILL.md").decode("utf-8", errors="replace")[:4000]
+            top = tops.pop()
+            head = z.read(f"{top}/SKILL.md").decode("utf-8", errors="replace")
     except (OSError, KeyError, zipfile.BadZipFile):
         return "zip 裡找不到最上層的 SKILL.md"
-    if not (re.search(r"^name:\s*\S", head, re.M) and re.search(r"^description:\s*\S", head, re.M)):
-        return "SKILL.md 缺少 name 或 description"
+    fm = _frontmatter(head)
+    if fm is None or not fm.get("name") or not fm.get("description"):
+        return "SKILL.md 開頭缺少 YAML frontmatter 的 name 或 description"
+    if not SKILL_NAME_RE.match(str(fm["name"])):
+        return f"name「{fm['name']}」只能用小寫英文、數字、連字號，最多 64 字"
+    if str(fm["name"]) != top:
+        return f"zip 最上層資料夾「{top}」必須和 name「{fm['name']}」相同"
+    if len(str(fm["description"])) > DESCRIPTION_MAX:
+        return f"description 有 {len(str(fm['description']))} 字，超過 {DESCRIPTION_MAX} 字上限"
+    if packs and PACK_NAME not in head:
+        return f"有 {PACK_NAME} 但 SKILL.md 沒有說明怎麼取用"
     return None
 
 
@@ -381,8 +465,8 @@ def render_install(library: str, pages: str, rows: list, now: str) -> str:
         if r["market_cmd"]:
             L.append(f"  - Claude Code：它自己就是套件市集，執行 `{r['market_cmd']}` 後用 `/plugin` 選要裝的")
         L += [f"  - Chat／Cowork：上傳 `{z}`" for z in r["zips"]]
-        if r.get("trimmed"):
-            L.append(f"  - ℹ️ 為了符合 claude.ai 的 {UPLOAD_FILE_LIMIT} 檔上限，Chat／Cowork 的 zip 是精簡版（少了 {r['trimmed']} 個範例檔）；Claude Code 版是完整的")
+        if r.get("packed"):
+            L.append(f"  - ℹ️ claude.ai 限制 {UPLOAD_FILE_LIMIT} 個檔案，所以 {r['packed']} 個範例檔原封不動合併在 zip 內的 `{PACK_NAME}`，內容完整、沒有刪除；Claude Code 版是原始檔案")
         L += [f"  - ⚠️ {p}" for p in r["problems"]]
     return "\n".join(L) + "\n"
 

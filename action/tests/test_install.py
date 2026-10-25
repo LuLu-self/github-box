@@ -1,4 +1,6 @@
 import json
+import pathlib
+import re
 import shutil
 import tempfile
 import unittest
@@ -169,26 +171,48 @@ class VerifyTest(unittest.TestCase):
         (src / "assets" / "icons.html").write_text("t")
         for i in range(n_variants):
             for suffix in ("", "-dark", "-full", "-animated"):
-                (src / "assets" / f"example-t{i}{suffix}.html").write_text("e" * (10 + i))
+                # some upstream files use Windows line endings; they must survive packing unchanged
+                (src / "assets" / f"example-t{i}{suffix}.html").write_bytes(("<p>\r\n" if i % 2 else "<p>\n").encode() + b"e" * (10 + i))
         return src
 
-    def test_over_200_files_trims_only_examples_variants_first(self):
+    def test_over_200_files_packs_without_losing_anything(self):
         src = self._fat_skill(60)
-        total = sum(1 for p in src.rglob("*") if p.is_file())
-        self.assertGreater(total, 200)
-        dropped = install.zip_dir(src, self.root / "fat.zip", "fat")
-        self.assertEqual(dropped, total - len(zipfile.ZipFile(self.root / "fat.zip").namelist()))
-        names = zipfile.ZipFile(self.root / "fat.zip").namelist()
+        originals = {p.relative_to(src).as_posix(): p.read_bytes() for p in src.rglob("*") if p.is_file()}
+        self.assertGreater(len(originals), 200)
+        packed = install.zip_dir(src, self.root / "fat.zip", "fat")
+        z = zipfile.ZipFile(self.root / "fat.zip")
+        names = z.namelist()
         self.assertLessEqual(len(names), install.UPLOAD_FILE_TARGET)
-        for must in ("fat/SKILL.md", "fat/scripts/run.py", "fat/assets/template.html", "fat/assets/icons.html"):
-            self.assertIn(must, names)
-        self.assertEqual(sum(n.startswith("fat/references/") for n in names), 8)
-        self.assertTrue(all(f"fat/assets/example-t{i}.html" in names for i in range(60)))  # base examples survive
+        self.assertEqual(packed, 180)  # all 60 x 3 dark/full/animated variants
+        bundle = install.unpack(z.read("fat/" + install.PACK_NAME).decode())
+        direct = {n.split("/", 1)[1]: z.read(n) for n in names if not n.endswith(install.PACK_NAME)}
+        for path, data in originals.items():
+            if path == "SKILL.md":
+                continue
+            self.assertEqual(direct[path] if path in direct else bundle[path].encode(), data, path)
+        for must in ("scripts/run.py", "assets/template.html", "assets/icons.html", "assets/example-t0.html"):
+            self.assertIn(must, direct)
+        skill = z.read("fat/SKILL.md").decode()
+        self.assertTrue(skill.startswith("---\nname: fat\ndescription: d\n---\n"))
+        self.assertIn(install.PACK_NAME, skill)
         self.assertIsNone(install.check_zip(self.root / "fat.zip"))
+
+    def test_pack_note_extraction_command_works(self):
+        src = self._fat_skill(60)
+        install.zip_dir(src, self.root / "fat.zip", "fat")
+        out = self.root / "unz"; zipfile.ZipFile(self.root / "fat.zip").extractall(out)
+        cmd = re.search(r"`(python3 -c .*?) <this skill folder>`", (out / "fat" / "SKILL.md").read_text()).group(1)
+        import subprocess, shlex, shutil
+        shutil.rmtree("/tmp/fat-files", ignore_errors=True)
+        subprocess.run(shlex.split(cmd) + [str(out / "fat")], check=True)
+        self.assertIn(b"\r\n", (src / "assets" / "example-t3-dark.html").read_bytes())
+        self.assertEqual(pathlib.Path("/tmp/fat-files/assets/example-t3-dark.html").read_bytes(),
+                         (src / "assets" / "example-t3-dark.html").read_bytes())
 
     def test_small_skill_is_not_trimmed(self):
         src = self._fat_skill(10)
         self.assertEqual(install.zip_dir(src, self.root / "s.zip", "s"), 0)
+        self.assertNotIn("s/" + install.PACK_NAME, zipfile.ZipFile(self.root / "s.zip").namelist())
 
     def test_unfittable_skill_returns_none(self):
         src = self.root / "huge"; (src / "references").mkdir(parents=True)
@@ -230,3 +254,48 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual(rows[0]["checks"]["code"], "fail")
         self.assertIn("no such plugin", rows[0]["problems"][0])
         self.assertEqual(install._status({**rows[0], "code_cmd": "x", "market_cmd": None}), "partial")
+
+
+class SkillRulesTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def z(self, top, skill_md, extra=None):
+        p = self.root / f"{top}.zip"
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr(f"{top}/SKILL.md", skill_md)
+            for k, v in (extra or {}).items():
+                z.writestr(f"{top}/{k}", v)
+        return p
+
+    def test_name_must_match_folder_and_charset(self):
+        self.assertIsNone(install.check_zip(self.z("ok-1", "---\nname: ok-1\ndescription: d\n---\n")))
+        self.assertIn("相同", install.check_zip(self.z("folder", "---\nname: other\ndescription: d\n---\n")))
+        self.assertIn("小寫", install.check_zip(self.z("Bad", "---\nname: Bad\ndescription: d\n---\n")))
+
+    def test_description_limit(self):
+        self.assertIn("1024", install.check_zip(self.z("s", "---\nname: s\ndescription: " + "x" * 1025 + "\n---\n")))
+        self.assertIsNone(install.check_zip(self.z("s2", "---\nname: s2\ndescription: " + "x" * 1024 + "\n---\n")))
+
+    def test_own_skill_description_fits_strictest_limit(self):
+        import yaml
+        text = (SKILL_SRC / "SKILL.md").read_text(encoding="utf-8").replace("{{LIBRARY}}", "LuLu-self/github-box-library")
+        fm = yaml.safe_load(text[3:text.find("\n---", 3)])
+        self.assertLessEqual(len(fm["description"]), 200)
+        self.assertRegex(fm["name"], r"^[a-z0-9-]{1,64}$")
+
+    def test_files_named_in_skill_md_are_never_packed(self):
+        src = self.root / "big"; (src / "assets").mkdir(parents=True)
+        (src / "SKILL.md").write_text("---\nname: big\ndescription: d\n---\nSee assets/example-k5-dark.html first.\n")
+        for i in range(70):
+            for suffix in ("", "-dark", "-full"):
+                (src / "assets" / f"example-k{i}{suffix}.html").write_text("x")
+        install.zip_dir(src, self.root / "big.zip", "big")
+        names = zipfile.ZipFile(self.root / "big.zip").namelist()
+        self.assertIn("big/assets/example-k5-dark.html", names)
+        self.assertNotIn("big/assets/example-k6-dark.html", names)
+        self.assertIsNone(install.check_zip(self.root / "big.zip"))

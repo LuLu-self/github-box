@@ -216,9 +216,9 @@ function installSection(cfg, stem, rec, m) {
       } else if (typeof result.market_cmd === 'string' && result.market_cmd) {
         code.push(el('p', 'mmsg', '它自己就是套件市集：'), copyRow(result.market_cmd), el('p', 'mmsg', '再輸入 /plugin 選要裝的項目。'));
       } else code.push(el('p', 'mmsg', '這項沒有 Claude Code 版本。'));
-      const trimmed = Number.isInteger(result.trimmed) ? result.trimmed : 0;
+      const packed = Number.isInteger(result.packed) ? result.packed : 0;
       const chat = zips.length ? [ulOf(zips.map((z) => zipButton(cfg, z))),
-        ...(trimmed ? [el('p', 'mmsg', `ℹ️ claude.ai 限制 zip 最多 200 個檔案，所以這份是精簡版（少了 ${trimmed} 個範例圖，技能本身完整）。Claude Code 版是完整的。`)] : []),
+        ...(packed ? [el('p', 'mmsg', `ℹ️ claude.ai 限制 zip 最多 200 個檔案，所以有 ${packed} 個範例檔原封不動合併在 packed-files.txt 裡，沒有刪除任何內容；技能會在需要時自己取出。Claude Code 版是原始檔案。`)] : []),
         el('p', 'mmsg', '到 claude.ai › 設定 › Capabilities（功能）› Skills › 上傳技能，選這個 zip，再把它的開關打開。')]
         : [el('p', 'mmsg', '這項沒有可以上傳的 skill zip。')];
       const cowork = zips.length ? [el('p', 'mmsg', 'Cowork 用的是同一個 claude.ai 帳號的 Skills。Chat 上傳好之後，在 Cowork 開新任務，確認技能清單裡看得到它。')]
