@@ -224,9 +224,11 @@ async function loadLib() {
   renderLibrary();
 }
 
-let libFilter = '';
 let libQuery = '';
-const PENDING = '__pending', FAILED = '__failed', TRIED_KEY = '__tried:', INSTALLED = '__installed', AREA_KEY = '__area:';
+// Combinable filters: at most one choice per group, groups AND together. QUEUE shows captures still in flight.
+let filters = {};
+const QUEUE = 'queue', PENDING = 'pending', FAILED = 'failed';
+const QUICK = [['mark', '未試'], ['mark', '在用'], ['verdict', '能用'], ['install', 'installable'], ['other', 'week']];
 
 function card(href, external, cls, title, repo, chips, tried = '') {
   const a = document.createElement('a');
@@ -245,62 +247,138 @@ function card(href, external, cls, title, repo, chips, tried = '') {
   return a;
 }
 
-function catButton(key, label, count) {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.setAttribute('aria-pressed', String(libFilter === key));
-  const n = document.createElement('span'); n.textContent = String(count);
-  b.append(label, ' ', n);
-  b.onclick = () => { libFilter = key; renderLibrary(); };
-  return b;
+// Every filter the library offers, grouped. Categories and task areas come from the data itself.
+function facetGroups(entries) {
+  const weekAgo = Date.now() - 7 * 86400000;
+  const label = (k) => categoryLabel(k) || k;
+  const cats = [...new Set(entries.map((it) => it.category || 'other'))]
+    .sort((a, b) => label(a).localeCompare(label(b), 'zh-Hant'));
+  const areas = [...new Set(entries.flatMap((it) => it.task_areas))];
+  return [
+    { id: 'mark', title: '我的標記', options: [...TRIED.map((t) => ({ key: t, label: t, mark: t, test: (it) => it.tried === t })),
+      { key: 'owned', label: '原本就裝了', test: (it) => it.owned }] },
+    { id: 'verdict', title: '能不能用', options: VERDICTS.map((v) => ({ key: v, label: v, test: (it) => it.verdict === v })) },
+    { id: 'install', title: '安裝', options: [{ key: 'installable', label: '可安裝', test: (it) => it.installable },
+      { key: 'installed', label: '已確認安裝', test: (it) => it.install }] },
+    { id: 'cat', title: '分類', options: cats.map((c) => ({ key: c, label: label(c), test: (it) => (it.category || 'other') === c })) },
+    { id: 'area', title: '任務', options: areas.map((a) => ({ key: a, label: a, test: (it) => it.task_areas.includes(a) })) },
+    { id: 'other', title: '其他', options: [{ key: 'week', label: '本週新增', test: (it) => Date.parse(it.last_seen) >= weekAgo },
+      { key: 'health', label: '半年未更新／封存', test: (it) => Boolean(it.health) }] },
+  ];
 }
 
-// Overview strip: totals for the whole library, independent of the search box and the chosen category.
-function renderStats(all) {
-  if (!all.length) { $('stats').replaceChildren(); return; }
-  const weekAgo = Date.now() - 7 * 86400000;
-  const rows = [['收藏', all.length], ['本週新增', all.filter((it) => Date.parse(it.last_seen) >= weekAgo).length],
-    ...VERDICTS.map((v) => [v, all.filter((it) => it.verdict === v).length]), ['半年未更新／封存', all.filter((it) => it.health).length],
-    ...TRIED.map((t) => [t, all.filter((it) => it.tried === t).length]), ['原本就裝了', all.filter((it) => it.owned).length],
-    ['可安裝', all.filter((it) => it.installable).length],
-    ['已確認安裝', all.filter((it) => it.install).length]];
-  $('stats').replaceChildren(...rows.filter(([k, n]) => n || k === '收藏').map(([k, n]) => {
-    const s = document.createElement('span'); const b = document.createElement('b'); b.textContent = String(n); s.append(k, b); return s;
+function optionOf(groups, gid, key) {
+  const g = groups.find((x) => x.id === gid);
+  return g ? g.options.find((o) => o.key === key) : null;
+}
+
+function applyFilters(entries, groups, skip = null) {
+  return entries.filter((it) => Object.entries(filters).every(([gid, key]) => {
+    if (gid === skip || gid === QUEUE) return true;
+    const o = optionOf(groups, gid, key);
+    return !o || o.test(it);
   }));
 }
 
-// Category index (全部, each category by size, then 分析中/失敗) and the cards for the chosen one.
+function toggle(gid, key) {
+  if (filters[gid] === key) delete filters[gid]; else filters = { ...filters, [gid]: key };
+  if (gid === QUEUE) filters = filters[QUEUE] ? { [QUEUE]: filters[QUEUE] } : {};
+  else delete filters[QUEUE];
+  renderLibrary();
+}
+
+// Faceted count: how many cards there would be with this option added to the other groups' choices.
+function facetCount(entries, groups, gid, o) { return applyFilters(entries, groups, gid).filter(o.test).length; }
+
+function optButton(gid, o, n, cls) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  if (cls) b.className = cls;
+  if (o.mark) b.dataset.mark = o.mark;
+  b.setAttribute('aria-pressed', String(filters[gid] === o.key));
+  const c = document.createElement('span'); c.textContent = String(n);
+  b.append(o.label, ' ', c);
+  b.onclick = () => toggle(gid, o.key);
+  return b;
+}
+
+// Grouped filter lists: the desktop sidebar and the phone filter sheet share this markup.
+function renderFacets(entries, groups, pending, failed) {
+  const blocks = [];
+  for (const g of groups) {
+    const opts = g.options.map((o) => [o, facetCount(entries, groups, g.id, o)]).filter(([o, n]) => n || filters[g.id] === o.key);
+    if (!opts.length) continue;
+    const box = document.createElement('div'); box.className = 'fgroup';
+    const h = document.createElement('h3'); h.textContent = g.title;
+    const list = document.createElement('div'); list.className = 'fopts';
+    if (g.id === 'cat' || g.id === 'area') opts.sort((a, b) => b[1] - a[1]);
+    list.append(...opts.map(([o, n]) => optButton(g.id, o, n)));
+    box.append(h, list);
+    blocks.push(box);
+  }
+  if (pending.length || failed.length) {
+    const box = document.createElement('div'); box.className = 'fgroup';
+    const h = document.createElement('h3'); h.textContent = '處理中';
+    const list = document.createElement('div'); list.className = 'fopts';
+    if (pending.length) list.append(optButton(QUEUE, { key: PENDING, label: '分析中' }, pending.length));
+    if (failed.length) list.append(optButton(QUEUE, { key: FAILED, label: '失敗' }, failed.length));
+    box.append(h, list);
+    blocks.push(box);
+  }
+  return blocks;
+}
+
+// The row above the cards: result count, then the active filters (removable) or, with none, quick picks.
+function renderActive(entries, groups, shown, total) {
+  const kids = [];
+  const n = document.createElement('span'); n.className = 'count';
+  n.textContent = Object.keys(filters).length || libQuery ? `${shown} / ${total} 筆` : `${total} 筆`;
+  kids.push(n);
+  const active = Object.entries(filters);
+  if (active.length) {
+    for (const [gid, key] of active) {
+      const o = gid === QUEUE ? { label: key === PENDING ? '分析中' : '失敗' } : optionOf(groups, gid, key);
+      if (!o) continue;
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'on';
+      b.textContent = `${o.label} ✕`; b.setAttribute('aria-label', `移除篩選：${o.label}`);
+      b.onclick = () => toggle(gid, key);
+      kids.push(b);
+    }
+    const clear = document.createElement('button'); clear.type = 'button'; clear.className = 'clear'; clear.textContent = '清除';
+    clear.onclick = () => { filters = {}; renderLibrary(); };
+    kids.push(clear);
+  } else {
+    for (const [gid, key] of QUICK) {
+      const o = optionOf(groups, gid, key);
+      if (!o) continue;
+      const c = facetCount(entries, groups, gid, o);
+      if (c) kids.push(optButton(gid, o, c, 'quick'));
+    }
+  }
+  $('active').replaceChildren(...kids);
+  const on = Object.keys(filters).length;
+  $('filter-open').querySelector('span').textContent = on ? String(on) : '';
+}
+
 function renderLibrary() {
   const cfg = loadCfg();
   const note = $('lib-note');
   note.textContent = lib.state === 'ok' || lib.state === 'empty' ? '' : STATE_TEXT[lib.state];
   const index = cfg && lib.repo === cfg.repo ? lib.index : null;
   const items = cfg ? mergeLibrary(index, historyFor(cfg), cfg.repo, lib.marks) : [];
-  renderStats(items.filter((it) => it.kind === 'entry'));
-  const entries = items.filter((it) => it.kind === 'entry' && matches(it, libQuery));
+  const all = items.filter((it) => it.kind === 'entry');
+  const entries = all.filter((it) => matches(it, libQuery));
   const pending = items.filter((it) => it.kind === 'pending');
   const failed = items.filter((it) => it.kind === 'failed');
-  const counts = new Map();
-  for (const it of entries) { const k = it.category || 'other'; counts.set(k, (counts.get(k) || 0) + 1); }
-  const triedCounts = TRIED.slice(1).map((t) => [t, entries.filter((it) => it.tried === t).length]).filter(([, n]) => n);
-  const areaCounts = new Map();
-  for (const it of entries) for (const a of it.task_areas) areaCounts.set(a, (areaCounts.get(a) || 0) + 1);
-  const installedN = entries.filter((it) => it.install).length;
-  const known = new Set(['', PENDING, FAILED, ...counts.keys(), ...triedCounts.map(([t]) => TRIED_KEY + t), ...(installedN ? [INSTALLED] : []), ...[...areaCounts.keys()].map((a) => AREA_KEY + a)]);
-  if (!known.has(libFilter) || (libFilter === PENDING && !pending.length) || (libFilter === FAILED && !failed.length)) libFilter = '';
-
-  const cats = [catButton('', '全部', entries.length)];
-  const label = (k) => categoryLabel(k) || k;
-  for (const [k, n] of [...counts].sort((a, b) => b[1] - a[1] || label(a[0]).localeCompare(label(b[0]), 'zh-Hant'))) cats.push(catButton(k, label(k), n));
-  if (areaCounts.size) { const sep = document.createElement('i'); sep.className = 'sep'; cats.push(sep); }
-  for (const [a, n] of [...areaCounts].sort((x, y) => y[1] - x[1])) cats.push(catButton(AREA_KEY + a, `任務：${a}`, n));
-  if (triedCounts.length || installedN) { const sep = document.createElement('i'); sep.className = 'sep'; cats.push(sep); }
-  for (const [t, n] of triedCounts) cats.push(catButton(TRIED_KEY + t, t, n));
-  if (installedN) cats.push(catButton(INSTALLED, '已確認安裝', installedN));
-  if (pending.length || failed.length) { const sep = document.createElement('i'); sep.className = 'sep'; cats.push(sep); }
-  if (pending.length) cats.push(catButton(PENDING, '分析中', pending.length));
-  if (failed.length) cats.push(catButton(FAILED, '失敗', failed.length));
-  $('cats').replaceChildren(...(items.length ? cats : []));
+  const groups = facetGroups(all);
+  // Drop choices that no longer exist (an entry was removed, a capture finished).
+  for (const [gid, key] of Object.entries(filters)) {
+    const gone = gid === QUEUE ? !(key === PENDING ? pending : failed).length : !optionOf(groups, gid, key);
+    if (gone) delete filters[gid];
+  }
+  const facets = renderFacets(entries, groups, pending, failed);
+  $('cats').replaceChildren(...(all.length || pending.length || failed.length ? facets : []));
+  $('sheet-body').replaceChildren(...renderFacets(entries, groups, pending, failed));
 
   if (!entries.length && !pending.length && !failed.length) {
     const p = document.createElement('p');
@@ -308,6 +386,8 @@ function renderLibrary() {
     p.textContent = cfg ? STATE_TEXT.empty : '連結收藏庫之後，你的書庫會列在這裡。';
     if (cfg && libQuery) p.textContent = `沒有符合「${libQuery}」的收藏。`;
     $('recent').replaceChildren(p);
+    renderActive(entries, groups, 0, all.length);
+    $('sheet-done').textContent = '顯示 0 筆';
     return;
   }
   const gh = `https://github.com/${cfg.repo}`;
@@ -317,15 +397,21 @@ function renderLibrary() {
     ...(it.install ? ['已確認安裝'] : it.owned ? ['原本就裝了'] : []), ...badges(it.requirements)].slice(0, 5);
   const entryCards = (list) => list.map((it) => card(`read.html#${it.stem}`, false, '', it.tagline || it.intro || it.repo,
     it.purpose ? `${it.repo} · ${it.purpose}` : it.repo, chips(it), it.tried));
-  let cards;
-  if (libFilter === PENDING) cards = pendingCards();
-  else if (libFilter === FAILED) cards = failedCards();
-  else if (libFilter === INSTALLED) cards = entryCards(entries.filter((it) => it.install));
-  else if (libFilter.startsWith(AREA_KEY)) cards = entryCards(entries.filter((it) => it.task_areas.includes(libFilter.slice(AREA_KEY.length))));
-  else if (libFilter.startsWith(TRIED_KEY)) cards = entryCards(entries.filter((it) => it.tried === libFilter.slice(TRIED_KEY.length)));
-  else if (libFilter) cards = entryCards(entries.filter((it) => (it.category || 'other') === libFilter));
-  else cards = [...pendingCards(), ...failedCards(), ...entryCards(entries)];
+  let cards, shown;
+  if (filters[QUEUE] === PENDING) { cards = pendingCards(); shown = pending.length; }
+  else if (filters[QUEUE] === FAILED) { cards = failedCards(); shown = failed.length; }
+  else {
+    const list = applyFilters(entries, groups);
+    shown = list.length;
+    cards = Object.keys(filters).length ? entryCards(list) : [...pendingCards(), ...failedCards(), ...entryCards(list)];
+    if (!list.length && Object.keys(filters).length) {
+      const p = document.createElement('p'); p.className = 'empty'; p.textContent = '沒有符合這些條件的收藏，移除一個篩選試試。';
+      cards = [p];
+    }
+  }
   $('recent').replaceChildren(...cards);
+  renderActive(entries, groups, shown, all.length);
+  $('sheet-done').textContent = `顯示 ${shown} 筆`;
 }
 
 // Coupled with publish.py: a processed capture moves to inbox/done/ or inbox/failed/ under the same name.
@@ -418,6 +504,15 @@ function init() {
   };
 
   $('q').oninput = () => { libQuery = $('q').value; renderLibrary(); };
+  const sheet = $('filters');
+  $('filter-open').onclick = () => { if (sheet.showModal) sheet.showModal(); else sheet.setAttribute('open', ''); };
+  const closeSheet = () => { if (sheet.open) sheet.close ? sheet.close() : sheet.removeAttribute('open'); };
+  $('sheet-done').onclick = closeSheet;
+  $('sheet-clear').onclick = () => { filters = {}; renderLibrary(); };
+  sheet.addEventListener('click', (e) => { if (e.target === sheet) closeSheet(); });
+  // Phone: the add box folds behind ＋ so the library gets the screen.
+  $('add-open').onclick = () => { const open = $('add').classList.toggle('open'); $('add-open').setAttribute('aria-expanded', String(open)); if (open) $('add-url').focus(); };
+  $('add-url').addEventListener('input', () => $('add').classList.toggle('typed', Boolean($('add-url').value)));
 
   // One link, or a whole pasted list; 原本就裝了 marks them 在用 once analyzed.
   $('add').onsubmit = async (e) => {

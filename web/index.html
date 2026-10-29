@@ -75,15 +75,35 @@
     .lib-note { margin: 0; font-size: 13px; color: var(--err); }
     .lib-note:empty { display: none; }
     .lib-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
-    .cats { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; flex: none; padding-bottom: 2px;
-            -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
-    .cats::-webkit-scrollbar { display: none; }
-    .cats button { flex: none; display: flex; align-items: baseline; gap: 6px; border: 1.5px solid var(--line); border-radius: 999px;
-                   background: var(--sheet); padding: 3px 12px; font-size: 14px; cursor: pointer; white-space: nowrap; }
-    .cats button span { font-size: 12px; color: var(--mute); font-variant-numeric: tabular-nums; }
-    .cats button[aria-pressed="true"] { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); font-weight: 600; }
-    .cats button[aria-pressed="true"] span { color: inherit; }
-    .cats .sep { display: none; }
+    /* Grouped filters: a sidebar on desktop; on phones the same groups live in the bottom sheet. */
+    .cats { display: none; }
+    .fgroup h3 { margin: 0 0 4px; font-size: 11.5px; font-weight: 700; letter-spacing: .08em; color: var(--mute); }
+    .fopts { display: flex; flex-wrap: wrap; gap: 6px; }
+    .fopts button, .active button { display: inline-flex; align-items: baseline; gap: 5px; border: 1.5px solid var(--line); border-radius: 999px;
+      background: var(--sheet); padding: 3px 11px; font-size: 14px; cursor: pointer; white-space: nowrap; }
+    .fopts button span, .active button span { font-size: 12px; color: var(--mute); font-variant-numeric: tabular-nums; }
+    .fopts button[aria-pressed="true"], .active button.on { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); font-weight: 600; }
+    .fopts button[aria-pressed="true"] span { color: inherit; }
+    .fopts button[data-mark]::before { content: ""; width: 9px; height: 9px; border-radius: 2px; align-self: center; border: 1.5px solid var(--line); }
+    .fopts button[data-mark="試過"]::before { background: var(--m-tried); border-color: var(--m-tried); }
+    .fopts button[data-mark="在用"]::before { background: var(--m-using); border-color: var(--m-using); }
+    .fopts button[data-mark="放棄"]::before { background: var(--m-dropped); border-color: var(--m-dropped); }
+    /* Count, then the active filters or quick picks: one line that scrolls sideways on phones. */
+    .active { display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none; flex: none; padding-bottom: 2px; }
+    .active::-webkit-scrollbar { display: none; }
+    .active .count { flex: none; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; margin-right: 2px; }
+    .active button { flex: none; font-size: 13px; padding: 2px 10px; }
+    .active .clear { border: 0; background: none; color: var(--link); font-weight: 600; padding: 2px 4px; }
+    .fbtn { flex: none; display: inline-flex; align-items: center; gap: 6px; border: 1.5px solid var(--line); border-radius: 8px;
+      background: var(--sheet); padding: 5px 12px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .fbtn span:not(:empty) { min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--cyan); color: var(--cyan-ink); font-size: 12px; text-align: center; }
+    .sheet-dlg .sheet-head { display: flex; align-items: center; justify-content: space-between; }
+    .sheet-body { display: grid; gap: 14px; margin: 6px 0 14px; }
+    .sheet-dlg .done { width: 100%; position: sticky; bottom: 0; }
+    .linkbtn { border: 0; background: none; color: var(--link); font-weight: 600; cursor: pointer; padding: 4px; }
+    .hbtns { display: flex; gap: 8px; align-items: center; min-width: 0; justify-content: flex-end; }
+    .hbtns #conn { max-width: min(46vw, 280px); }
+    .addbtn { font-weight: 600; flex: none; }
     /* Scrolls inside the one-screen layout; the scrollbar stays hidden like the rest of the page. */
     #recent { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; padding: 2px 2px 28px;
               display: grid; grid-template-columns: 1fr; gap: 12px; align-content: start; }
@@ -106,16 +126,27 @@
     .card[data-tried="試過"] .bd span.mark { color: var(--m-tried); background: var(--m-tried-bg); }
     .card[data-tried="在用"] .bd span.mark { color: var(--m-using); background: var(--sheet); }
     .card[data-tried="放棄"] .bd span.mark { color: var(--m-dropped); background: var(--m-dropped-bg); }
-    .legend { display: flex; gap: 12px; margin: 6px 0 0; font-size: 12px; color: var(--mute); }
-    .legend span { display: inline-flex; align-items: center; gap: 5px; }
-    .legend span::before { content: ""; width: 12px; height: 12px; border-radius: 3px; border: 1.5px solid var(--line); }
-    .legend span[data-tried="試過"]::before { background: var(--m-tried); border-color: var(--m-tried); }
-    .legend span[data-tried="在用"]::before { background: var(--m-using); border-color: var(--m-using); }
-    .legend span[data-tried="放棄"]::before { background: var(--m-dropped); border-color: var(--m-dropped); }
     .card.failed { border-color: var(--err); }
     .card.failed .tl { color: var(--err); }
     #recent .empty { color: var(--mute); font-size: 14px; padding: 16px 2px; margin: 0; }
     @media (min-width: 560px) { #recent { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    /* Phones and narrow windows: the add box folds behind ＋, the hint only shows when it has news, cards are tighter. */
+    @media (max-width: 899px) {
+      .sheet { gap: 10px; }
+      #add { display: none; }
+      #add.open { display: flex; }
+      #add:not(.typed) .owned { display: none; }
+      .status[data-state="idle"] { display: none; }
+      .lib-head { border-bottom: 0; padding-bottom: 0; }
+      .lib-head h2, .lib-head #library { display: none; }
+      .q { max-width: none; margin-left: 0; padding: 7px 10px; font-size: 16px; }
+      .card { padding: 11px 13px; gap: 2px; }
+      .card:hover { padding: 10.5px 12.5px; }
+      .card .tl { font-size: 16px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+      .card .bd { margin-top: 4px; }
+      .card .bd span:nth-child(n+4) { display: none; }
+      #recent { gap: 8px; }
+    }
 
     dialog {
       width: min(460px, 100%); max-width: 100%; max-height: 92dvh; margin: auto auto 0;
@@ -140,11 +171,13 @@
       .sheet { padding-top: 32px; padding-bottom: 28px; gap: 18px; }
       #add, .status { max-width: 760px; }
       .lib-body { flex-direction: row; gap: 28px; }
-      .cats { flex-direction: column; overflow-x: hidden; overflow-y: auto; max-height: 100%; width: 200px; gap: 2px; align-self: start; padding: 8px; flex-wrap: nowrap;
-              background: var(--sheet); border: 1.5px solid var(--line); border-radius: 10px; -webkit-mask-image: none; mask-image: none; }
-      .cats button { justify-content: space-between; border: 0; border-radius: 8px; padding: 6px 10px; background: transparent; }
-      .cats button[aria-pressed="true"] { background: var(--cyan); }
-      .cats .sep { display: block; height: 1px; background: var(--rule); margin: 8px 4px; }
+      .cats { display: grid; gap: 12px; align-content: start; overflow-y: auto; max-height: 100%; width: 230px; flex: none; padding: 12px;
+              background: var(--sheet); border: 1.5px solid var(--line); border-radius: 10px; scrollbar-width: thin; }
+      .cats .fopts { flex-direction: column; flex-wrap: nowrap; gap: 1px; }
+      .cats .fopts button { justify-content: flex-start; gap: 8px; border: 0; border-radius: 8px; padding: 4px 10px; background: transparent; }
+      .cats .fopts button span { margin-left: auto; }
+      .cats .fopts button[aria-pressed="true"] { background: var(--cyan); }
+      .fbtn, .addbtn { display: none; }
       #recent { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
       dialog { margin: auto; border-bottom: 2px solid var(--line); border-radius: 16px; max-height: 86dvh; padding: 22px 24px; }
     }
@@ -153,10 +186,6 @@
     #add { flex-wrap: wrap; }
     .owned { flex-basis: 100%; display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--mute); }
     #add .owned input { all: revert; min-height: 0; width: 16px; height: 16px; margin: 0; flex: none; accent-color: var(--link); }
-    .stats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-    .stats:empty { display: none; }
-    .stats span { border: 1.5px solid var(--line); border-radius: 8px; padding: 2px 10px; font-size: 13px; background: var(--sheet); white-space: nowrap; }
-    .stats b { font-variant-numeric: tabular-nums; margin-left: 4px; }
     .ios { margin-top: 14px; font-size: 13px; }
     .ios pre { user-select: all; -webkit-user-select: all; padding: 6px 8px; border: 1.5px dashed var(--line); border-radius: 8px; }
     details { margin-top: 14px; font-size: 13px; color: var(--mute); }
@@ -172,7 +201,10 @@
         </svg>
         GitHub Box
       </div>
-      <button id="conn" class="chip" type="button" aria-haspopup="dialog"><i class="dot"></i><span>尚未設定</span></button>
+      <div class="hbtns">
+        <button id="add-open" class="chip addbtn" type="button" aria-controls="add" aria-expanded="false" aria-label="新增收藏">＋ 收藏</button>
+        <button id="conn" class="chip" type="button" aria-haspopup="dialog"><i class="dot"></i><span>尚未設定</span></button>
+      </div>
     </header>
 
     <form id="add">
@@ -189,10 +221,10 @@
       <div class="lib-head">
         <h2>書庫</h2>
         <input id="q" class="q" type="search" placeholder="搜尋任務、用途、標籤" autocomplete="off" aria-label="搜尋收藏">
+        <button id="filter-open" class="fbtn" type="button" aria-haspopup="dialog" aria-controls="filters">篩選<span></span></button>
         <a id="library" href="#" target="_blank" rel="noopener">GitHub ↗</a>
       </div>
-      <div id="stats" class="stats" aria-label="收藏總覽"></div>
-      <p class="legend" aria-label="我的標記顏色"><span data-tried="未試">未試</span><span data-tried="試過">試過</span><span data-tried="在用">在用</span><span data-tried="放棄">放棄</span></p>
+      <div id="active" class="active" aria-label="目前的篩選"></div>
       <p id="lib-note" class="lib-note" role="status"></p>
       <div class="lib-body">
         <nav id="cats" class="cats" aria-label="分類"></nav>
@@ -200,6 +232,13 @@
       </div>
     </section>
   </main>
+
+  <dialog id="filters" class="sheet-dlg" aria-labelledby="filters-title">
+    <div class="sheet-head"><h2 id="filters-title">篩選</h2><button id="sheet-clear" class="linkbtn" type="button">清除全部</button></div>
+    <p>不同組可以疊加，例如「未試」＋「能用」；數字是加上這個條件後的筆數。</p>
+    <div id="sheet-body" class="sheet-body"></div>
+    <button id="sheet-done" class="btn primary done" type="button">顯示</button>
+  </dialog>
 
   <dialog id="drawer" aria-labelledby="drawer-title">
     <h2 id="drawer-title">連結收藏庫</h2>
